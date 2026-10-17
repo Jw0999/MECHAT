@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { ChevronLeft, Video, Phone } from 'lucide-react';
 import { useChatStore } from '@/stores/chatStore';
 import { useCallStore } from '@/stores/callStore';
@@ -12,30 +12,34 @@ interface ConversationDetailScreenProps {
   onBack: () => void;
 }
 
+// Stable empty references to prevent Zustand infinite selector re-renders
+const EMPTY_STRINGS: string[] = [];
+const EMPTY_MESSAGES: Message[] = [];
+
 export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> = ({
   conversationId,
   onBack,
 }) => {
   const conversations = useChatStore((s) => s.conversations);
   const messagesMap = useChatStore((s) => s.messages);
+  const typingMap = useChatStore((s) => s.typingUsers);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const setTyping = useChatStore((s) => s.setTyping);
-  const typingUsers = useChatStore((s) => s.typingUsers[conversationId] || []);
 
   const initiateCall = useCallStore((s) => s.initiateCall);
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
-
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const conversation = conversations.find((c) => c.id === conversationId);
-  const messages = messagesMap[conversationId] || [];
+  const messages = messagesMap[conversationId] || EMPTY_MESSAGES;
+  const typingUsers = typingMap[conversationId] || EMPTY_STRINGS;
 
   const isGroup = conversation?.type === 'group';
   const title = isGroup ? conversation.title : conversation?.other_user?.display_name || 'Chat';
   const avatar = isGroup
-    ? conversation?.avatar_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${conversation?.title}`
+    ? conversation?.avatar_url || `https://api.dicebear.com/7.x/identicon/svg?seed=${conversation?.title || 'Group'}`
     : conversation?.other_user?.avatar_url ||
       `https://api.dicebear.com/7.x/avataaars/svg?seed=${title}`;
   const isOnline = !isGroup && conversation?.other_user?.online_status === 'online';
@@ -51,20 +55,33 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
-  const handleSendMessage = (
-    content: string,
-    messageType: 'text' | 'image' | 'audio' | 'file' = 'text',
-    metadata: any = {}
-  ) => {
-    sendMessage(conversationId, content, messageType, metadata, replyingTo?.id);
-    setReplyingTo(null);
-  };
+  const handleSendMessage = useCallback(
+    (
+      content: string,
+      messageType: 'text' | 'image' | 'audio' | 'file' = 'text',
+      metadata: any = {}
+    ) => {
+      sendMessage(conversationId, content, messageType, metadata, replyingTo?.id);
+      setReplyingTo(null);
+    },
+    [conversationId, sendMessage, replyingTo]
+  );
 
-  const handleStartCall = (type: 'audio' | 'video') => {
-    if (conversation?.other_user) {
-      initiateCall(conversation.other_user, type);
-    }
-  };
+  const handleTyping = useCallback(
+    (isTyping: boolean) => {
+      setTyping(conversationId, isTyping);
+    },
+    [conversationId, setTyping]
+  );
+
+  const handleStartCall = useCallback(
+    (type: 'audio' | 'video') => {
+      if (conversation?.other_user) {
+        initiateCall(conversation.other_user, type);
+      }
+    },
+    [conversation, initiateCall]
+  );
 
   return (
     <div className="flex flex-col h-full bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] transition-colors overflow-hidden">
@@ -156,7 +173,7 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
         onSendMessage={handleSendMessage}
         replyingTo={replyingTo}
         onCancelReply={() => setReplyingTo(null)}
-        onTyping={(isTyping) => setTyping(conversationId, isTyping)}
+        onTyping={handleTyping}
       />
     </div>
   );

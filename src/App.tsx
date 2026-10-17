@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useAuthStore } from '@/stores/authStore';
 import { AuthScreen } from '@/features/auth/AuthScreen';
 import { AppLayout } from '@/features/shell/AppLayout';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Toaster } from 'sonner';
 import { MessageCircle } from 'lucide-react';
 
@@ -27,7 +28,7 @@ export const App: React.FC = () => {
   }
 
   return (
-    <>
+    <ErrorBoundary>
       <Toaster
         position="top-center"
         toastOptions={{
@@ -41,7 +42,7 @@ export const App: React.FC = () => {
         }}
       />
       {user ? <AppLayout /> : <AuthScreen />}
-    </>
+    </ErrorBoundary>
   );
 };
 

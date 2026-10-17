@@ -38,6 +38,8 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const recordTimerRef = useRef<any>(null);
 
+  const isTypingRef = useRef(false);
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
@@ -46,17 +48,24 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     }
   }, [text]);
 
-  // Handle typing debounce
+  // Handle typing debounce safely
   useEffect(() => {
     if (!onTyping) return;
     if (text.trim().length > 0) {
-      onTyping(true);
-      const timer = setTimeout(() => onTyping(false), 2000);
+      if (!isTypingRef.current) {
+        isTypingRef.current = true;
+        onTyping(true);
+      }
+      const timer = setTimeout(() => {
+        isTypingRef.current = false;
+        onTyping(false);
+      }, 2000);
       return () => clearTimeout(timer);
-    } else {
+    } else if (isTypingRef.current) {
+      isTypingRef.current = false;
       onTyping(false);
     }
-  }, [text, onTyping]);
+  }, [text]);
 
   const handleSend = () => {
     // If there is a pending image or file attachment

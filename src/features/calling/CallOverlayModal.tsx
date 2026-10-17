@@ -3,6 +3,7 @@ import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
 import { useCallStore } from '@/stores/callStore';
 import { formatDuration } from '@/lib/utils';
 import { cn } from '@/lib/utils';
+import { soundEffects } from '@/lib/audio/soundEffects';
 
 export const CallOverlayModal: React.FC = () => {
   const activeCall = useCallStore((s) => s.activeCall);
@@ -27,6 +28,18 @@ export const CallOverlayModal: React.FC = () => {
       remoteVideoRef.current.srcObject = activeCall.remoteStream;
     }
   }, [activeCall?.remoteStream]);
+
+  // Play ringing chime when incoming (ringing) or outgoing (calling)
+  useEffect(() => {
+    if (activeCall?.status === 'calling' || activeCall?.status === 'ringing') {
+      soundEffects.startRingtone();
+    } else {
+      soundEffects.stopRingtone();
+    }
+    return () => {
+      soundEffects.stopRingtone();
+    };
+  }, [activeCall?.status]);
 
   if (!activeCall) return null;
 
