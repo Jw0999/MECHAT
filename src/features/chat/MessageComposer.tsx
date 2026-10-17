@@ -48,6 +48,13 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     }
   }, [text]);
 
+  // Auto-focus textarea when replying
+  useEffect(() => {
+    if (replyingTo && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [replyingTo]);
+
   // Handle typing debounce safely
   useEffect(() => {
     if (!onTyping) return;

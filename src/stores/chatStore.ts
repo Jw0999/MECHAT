@@ -925,10 +925,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (error) throw error;
 
+      const rawMessages = (data as any[]) || [];
+      const msgMap = new Map<string, Message>();
+      rawMessages.forEach((m) => msgMap.set(m.id, m));
+      const resolvedMessages: Message[] = rawMessages.map((m) => ({
+        ...m,
+        reply_to_message:
+          m.reply_to_message ||
+          (m.reply_to_message_id ? msgMap.get(m.reply_to_message_id) || null : null),
+      }));
+
       set((state) => ({
         messages: {
           ...state.messages,
-          [conversationId]: (data as any[]) || [],
+          [conversationId]: resolvedMessages,
         },
         isLoadingMessages: false,
       }));
@@ -948,6 +958,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const { user, profile, isDemoMode } = useAuthStore.getState();
     if (!user || !profile) return false;
 
+    // Find the replied message if replyToId is present
+    const existingMessages = get().messages[conversationId] || [];
+    const replyTarget = replyToId
+      ? existingMessages.find((m) => m.id === replyToId) || null
+      : null;
+
     const tempId = `temp-${Date.now()}`;
     const optimisticMessage: Message = {
       id: tempId,
@@ -956,6 +972,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       content,
       message_type: messageType,
       reply_to_message_id: replyToId || null,
+      reply_to_message: replyTarget,
       metadata,
       is_read: false,
       deleted_at: null,
@@ -1050,10 +1067,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (error) throw error;
 
-      // Replace optimistic message with actual persisted record
+      // Replace optimistic message with actual persisted record while preserving resolved reply target
       set((state) => {
         const msgs = (state.messages[conversationId] || []).map((m) =>
-          m.id === tempId ? (data as Message) : m
+          m.id === tempId
+            ? ({ ...data, reply_to_message: replyTarget } as Message)
+            : m
         );
         return {
           messages: { ...state.messages, [conversationId]: msgs },

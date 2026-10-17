@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { Message } from '@/types/database.types';
 import { useAuthStore } from '@/stores/authStore';
+import { useChatStore } from '@/stores/chatStore';
 import { formatMessageTime, cn } from '@/lib/utils';
 import {
   Check,
@@ -31,6 +32,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 }) => {
   const currentUserId = useAuthStore((s) => s.user?.id);
   const isOutgoing = message.sender_id === currentUserId;
+
+  const conversationMessages = useChatStore((s) => s.messages[message.conversation_id]);
+  const replyTarget =
+    message.reply_to_message ||
+    (message.reply_to_message_id && conversationMessages
+      ? conversationMessages.find((m) => m.id === message.reply_to_message_id) || null
+      : null);
 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -105,21 +113,6 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         </span>
       )}
 
-      {/* Reply Reference Preview */}
-      {message.reply_to_message && (
-        <div
-          className={cn(
-            'text-xs mb-1 px-3 py-1.5 rounded-t-xl rounded-b border-l-2 max-w-full truncate',
-            isOutgoing
-              ? 'bg-[#8BCF32]/20 border-brand text-[#F5F7F7]'
-              : 'bg-[#1D2326] border-[#9BA5A8] text-[#9BA5A8]'
-          )}
-        >
-          <span className="font-bold block text-[10px] text-brand">Reply</span>
-          <span className="truncate">{message.reply_to_message.content}</span>
-        </div>
-      )}
-
       {/* Bubble Container */}
       <div
         onContextMenu={(e) => {
@@ -133,6 +126,37 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             : 'bg-[#292F32] dark:bg-[#292F32] light:bg-[#E9EDE8] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] rounded-2xl rounded-tl-sm'
         )}
       >
+        {/* Reply Quote Banner Inside Bubble */}
+        {replyTarget && (
+          <div
+            className={cn(
+              'text-xs mb-2 px-3 py-1.5 rounded-xl border-l-[3px] max-w-full select-none text-left',
+              isOutgoing
+                ? 'bg-[#0B0F10]/20 border-[#0B0F10] text-[#0B0F10]'
+                : 'bg-[#151A1C]/90 border-brand text-[#F5F7F7]'
+            )}
+          >
+            <span
+              className={cn(
+                'font-extrabold block text-[11px] mb-0.5',
+                isOutgoing ? 'text-[#0B0F10]' : 'text-brand'
+              )}
+            >
+              {replyTarget.sender?.display_name ||
+                (replyTarget.sender_id === currentUserId ? 'You' : 'Reply')}
+            </span>
+            <span
+              className={cn(
+                'truncate block text-xs',
+                isOutgoing ? 'text-[#0B0F10]/85 font-normal' : 'text-[#9BA5A8]'
+              )}
+            >
+              {replyTarget.content ||
+                (replyTarget.message_type === 'image' ? '📷 Photo' : 'Voice note')}
+            </span>
+          </div>
+        )}
+
         {/* Subtle 3-Dots Hover Menu Trigger */}
         <button
           type="button"

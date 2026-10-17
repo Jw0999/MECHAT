@@ -175,6 +175,10 @@ export const useCallStore = create<CallState>((set, get) => ({
       // Simulated pickup after 2.5s for immediate responsiveness
       setTimeout(() => {
         if (get().activeCall?.status === 'calling') {
+          if (callType === 'video' && !manager.hasRemoteTracks()) {
+            manager.simulateRemoteStream(remoteUser);
+          }
+
           set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, status: 'connected' } } : state));
 
           // Start duration timer
@@ -229,6 +233,10 @@ export const useCallStore = create<CallState>((set, get) => ({
     try {
       await manager.startLocalMedia(activeCall.callType === 'video');
       manager.initializePeerConnection();
+
+      if (activeCall.callType === 'video' && !manager.hasRemoteTracks()) {
+        manager.simulateRemoteStream(activeCall.remoteUser);
+      }
 
       set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, status: 'connected' } } : state));
 
