@@ -62,6 +62,7 @@ interface ChatState {
   setTyping: (conversationId: string, isTyping: boolean) => void;
   subscribeToConversation: (conversationId: string) => void;
   unsubscribeFromConversation: () => void;
+  resetToDemoData: () => void;
 }
 
 // Initial demo mock conversations matching the attached design reference
@@ -775,6 +776,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoadingConversations: false,
   isLoadingMessages: false,
   realtimeChannel: null,
+
+  resetToDemoData: () => {
+    set({
+      conversations: DEMO_CONVERSATIONS,
+      messages: {
+        'conv-nina': NINA_MESSAGES,
+        'conv-group-product': GROUP_MESSAGES,
+        'conv-danang': DANANG_MESSAGES,
+        'conv-satria': SATRIA_MESSAGES,
+        'conv-alexander': ALEXANDER_MESSAGES,
+        'conv-jake': JAKE_MESSAGES,
+        'conv-roomie': ROOMIE_MESSAGES,
+      },
+    });
+  },
 
   setFilterTab: (tab) => set({ filterTab: tab }),
   setSearchQuery: (query) => set({ searchQuery: query }),

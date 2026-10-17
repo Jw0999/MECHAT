@@ -5,6 +5,7 @@ import { useAuthStore } from '../src/stores/authStore';
 describe('MeChat Groups & WhatsApp-style Management', () => {
   beforeAll(() => {
     useAuthStore.getState().enableDemoMode(0);
+    useChatStore.getState().resetToDemoData();
   });
 
   it('initializes demo groups with description and participants', () => {

@@ -30,6 +30,7 @@ describe('Chat Utilities & Formats', () => {
 describe('Chat Reply & Calling Logic', () => {
   beforeAll(() => {
     useAuthStore.getState().enableDemoMode(0);
+    useChatStore.getState().resetToDemoData();
   });
   it('attaches reply_to_message when sending a reply to a chat message', async () => {
     const store = useChatStore.getState();
