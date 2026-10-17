@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, Video, Phone } from 'lucide-react';
+import { ChevronLeft, Video, Phone, Info } from 'lucide-react';
 import { useChatStore } from '@/stores/chatStore';
 import { useCallStore } from '@/stores/callStore';
 import { MessageBubble } from './MessageBubble';
 import { MessageComposer } from './MessageComposer';
+import { GroupDetailsModal } from '@/features/groups/GroupDetailsModal';
 import { formatLastSeen } from '@/lib/utils';
 import type { Message } from '@/types/database.types';
 
@@ -30,6 +31,7 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
   const initiateCall = useCallStore((s) => s.initiateCall);
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [isGroupDetailsOpen, setIsGroupDetailsOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const conversation = conversations.find((c) => c.id === conversationId);
@@ -45,7 +47,7 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
   const isOnline = !isGroup && conversation?.other_user?.online_status === 'online';
 
   const subtitle = isGroup
-    ? 'Group conversation'
+    ? `${conversation?.members?.length || 2} participants`
     : isOnline
     ? 'Online'
     : formatLastSeen(conversation?.other_user?.last_seen);
@@ -91,34 +93,42 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
           {/* Back button */}
           <button
             onClick={onBack}
-            className="p-1 -ml-1 text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] hover:text-brand transition rounded-full"
+            className="p-1 -ml-1 text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] hover:text-brand transition rounded-full shrink-0"
             title="Back to conversations"
           >
             <ChevronLeft size={24} />
           </button>
 
-          {/* Contact Avatar + online dot */}
-          <div className="relative shrink-0">
-            <img
-              src={avatar}
-              alt={title || ''}
-              className="w-10 h-10 rounded-full object-cover border border-[#252C2E]"
-            />
-            {isOnline && (
-              <span className="absolute bottom-0 right-0 w-3 h-3 bg-brand rounded-full ring-2 ring-[#0B0F10]" />
-            )}
-          </div>
+          {/* Contact Avatar + online dot & Name (clickable for group info) */}
+          <div
+            onClick={() => isGroup && setIsGroupDetailsOpen(true)}
+            className={`flex items-center gap-2.5 min-w-0 ${
+              isGroup ? 'cursor-pointer hover:opacity-85 transition' : ''
+            }`}
+            title={isGroup ? 'View group info & description' : undefined}
+          >
+            <div className="relative shrink-0">
+              <img
+                src={avatar}
+                alt={title || ''}
+                className="w-10 h-10 rounded-full object-cover border border-[#252C2E]"
+              />
+              {isOnline && (
+                <span className="absolute bottom-0 right-0 w-3 h-3 bg-brand rounded-full ring-2 ring-[#0B0F10]" />
+              )}
+            </div>
 
-          {/* Name & Subtitle / Last seen */}
-          <div className="min-w-0">
-            <h2 className="text-sm font-bold text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] truncate leading-tight">
-              {title}
-            </h2>
-            <p className="text-[11px] text-[#9BA5A8] truncate mt-0.5">{subtitle}</p>
+            {/* Name & Subtitle / Last seen */}
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] truncate leading-tight">
+                {title}
+              </h2>
+              <p className="text-[11px] text-[#9BA5A8] truncate mt-0.5">{subtitle}</p>
+            </div>
           </div>
         </div>
 
-        {/* Video & Phone Action Buttons */}
+        {/* Video, Phone & Group Info Action Buttons */}
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={() => handleStartCall('video')}
@@ -134,6 +144,15 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
           >
             <Phone size={19} />
           </button>
+          {isGroup && (
+            <button
+              onClick={() => setIsGroupDetailsOpen(true)}
+              className="w-9 h-9 rounded-full flex items-center justify-center text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] hover:bg-[#151A1C] dark:hover:bg-[#151A1C] light:hover:bg-[#E9EDE8] hover:text-brand transition"
+              title="Group info & description"
+            >
+              <Info size={19} />
+            </button>
+          )}
         </div>
       </header>
 
@@ -175,6 +194,15 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
         onCancelReply={() => setReplyingTo(null)}
         onTyping={handleTyping}
       />
+
+      {/* WhatsApp-style Group Details Modal */}
+      {isGroup && (
+        <GroupDetailsModal
+          isOpen={isGroupDetailsOpen}
+          onClose={() => setIsGroupDetailsOpen(false)}
+          conversationId={conversationId}
+        />
+      )}
     </div>
   );
 };

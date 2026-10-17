@@ -68,6 +68,26 @@ const DEFAULT_SETTINGS: UserSettings = {
   updated_at: new Date().toISOString(),
 };
 
+const safeStorage = {
+  get: (key: string): string | null => {
+    try {
+      return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+    } catch {
+      return null;
+    }
+  },
+  set: (key: string, val: string) => {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(key, val);
+    } catch {}
+  },
+  remove: (key: string) => {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+    } catch {}
+  },
+};
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   profile: null,
@@ -81,7 +101,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ isConfigured: configured });
 
     // Check if demo user is stored in localStorage
-    const savedDemo = localStorage.getItem('mechat_demo_user');
+    const savedDemo = safeStorage.get('mechat_demo_user');
     if (savedDemo) {
       try {
         const parsed = JSON.parse(savedDemo);
@@ -94,7 +114,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         });
         return;
       } catch (e) {
-        localStorage.removeItem('mechat_demo_user');
+        safeStorage.remove('mechat_demo_user');
       }
     }
 
@@ -156,7 +176,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   enableDemoMode: (presetIndex = 0) => {
     const chosenProfile = DEMO_PROFILES[presetIndex] || DEMO_PROFILES[0];
-    localStorage.setItem('mechat_demo_user', JSON.stringify(chosenProfile));
+    safeStorage.set('mechat_demo_user', JSON.stringify(chosenProfile));
     set({
       user: { id: chosenProfile.id, email: `${chosenProfile.username}@mechat.app` },
       profile: chosenProfile,
@@ -225,7 +245,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      localStorage.setItem('mechat_demo_user', JSON.stringify(newDemoProfile));
+      safeStorage.set('mechat_demo_user', JSON.stringify(newDemoProfile));
       set({
         user: { id: newDemoProfile.id, email },
         profile: newDemoProfile,
@@ -278,7 +298,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   logout: async () => {
-    localStorage.removeItem('mechat_demo_user');
+    safeStorage.remove('mechat_demo_user');
     if (get().isConfigured) {
       try {
         await supabase.auth.signOut();
@@ -297,7 +317,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const updatedProfile = { ...profile, ...updates, updated_at: new Date().toISOString() };
 
     if (isDemoMode || !isConfigured) {
-      localStorage.setItem('mechat_demo_user', JSON.stringify(updatedProfile));
+      safeStorage.set('mechat_demo_user', JSON.stringify(updatedProfile));
       set({ profile: updatedProfile });
       toast.success('Profile updated');
       return { success: true };

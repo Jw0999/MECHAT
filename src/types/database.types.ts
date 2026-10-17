@@ -32,6 +32,7 @@ export interface Conversation {
   id: string;
   type: ConversationType;
   title: string | null;
+  description?: string | null;
   avatar_url: string | null;
   created_by: string | null;
   last_message_at: string;

@@ -1,8 +1,19 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { Message } from '@/types/database.types';
 import { useAuthStore } from '@/stores/authStore';
 import { formatMessageTime, cn } from '@/lib/utils';
-import { Check, CheckCheck, Play, Pause, Trash2, Reply, Copy, Clock, AlertCircle } from 'lucide-react';
+import {
+  Check,
+  CheckCheck,
+  Play,
+  Pause,
+  Trash2,
+  Reply,
+  Copy,
+  Clock,
+  AlertCircle,
+  MoreVertical,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 interface MessageBubbleProps {
@@ -22,7 +33,21 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const isOutgoing = message.sender_id === currentUserId;
 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!showMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
 
   const toggleAudio = () => {
     if (!audioRef.current) return;
@@ -40,13 +65,24 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       navigator.clipboard.writeText(message.content);
       toast.success('Message copied');
     }
+    setShowMenu(false);
+  };
+
+  const handleReply = () => {
+    if (onReply) onReply(message);
+    setShowMenu(false);
+  };
+
+  const handleDelete = () => {
+    if (onDelete) onDelete(message.id);
+    setShowMenu(false);
   };
 
   if (message.deleted_at) {
     return (
       <div
         className={cn(
-          'flex my-1 text-xs italic text-[#9BA5A8] px-3 py-1.5 rounded-xl border border-dashed border-[#252C2E]/60 max-w-xs',
+          'flex my-1 text-xs italic text-[#9BA5A8] px-3 py-1.5 rounded-xl border border-dashed border-[#252C2E]/60 max-w-xs select-none',
           isOutgoing ? 'ml-auto' : 'mr-auto'
         )}
       >
@@ -58,7 +94,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   return (
     <div
       className={cn(
-        'group relative flex flex-col mb-2.5 max-w-[85%] sm:max-w-[70%]',
+        'group relative flex flex-col mb-2 max-w-[85%] sm:max-w-[70%]',
         isOutgoing ? 'ml-auto items-end' : 'mr-auto items-start'
       )}
     >
@@ -86,16 +122,38 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
       {/* Bubble Container */}
       <div
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setShowMenu((prev) => !prev);
+        }}
         className={cn(
-          'relative px-4 py-2.5 shadow-sm text-sm transition-all',
+          'relative px-4 py-2.5 shadow-sm text-sm transition-all select-text',
           isOutgoing
             ? 'bg-brand text-[#0B0F10] font-medium rounded-2xl rounded-tr-sm'
             : 'bg-[#292F32] dark:bg-[#292F32] light:bg-[#E9EDE8] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] rounded-2xl rounded-tl-sm'
         )}
       >
+        {/* Subtle 3-Dots Hover Menu Trigger */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowMenu((prev) => !prev);
+          }}
+          className={cn(
+            'absolute top-1.5 right-1.5 opacity-40 hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-0.5 rounded-full z-10',
+            isOutgoing
+              ? 'hover:bg-[#0B0F10]/15 text-[#0B0F10]'
+              : 'hover:bg-white/10 text-[#9BA5A8] hover:text-[#F5F7F7]'
+          )}
+          title="Message options"
+        >
+          <MoreVertical size={14} />
+        </button>
+
         {/* Text Message */}
         {message.message_type === 'text' && (
-          <p className="whitespace-pre-wrap break-words leading-relaxed select-text">
+          <p className="whitespace-pre-wrap break-words leading-relaxed select-text pr-3">
             {message.content}
           </p>
         )}
@@ -180,39 +238,40 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             </>
           )}
         </div>
-      </div>
 
-      {/* Hover action bar */}
-      <div
-        className={cn(
-          'absolute top-0 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 bg-[#151A1C]/90 backdrop-blur px-2 py-1 rounded-full border border-[#252C2E] shadow-md z-10',
-          isOutgoing ? 'right-full mr-2' : 'left-full ml-2'
-        )}
-      >
-        <button
-          onClick={handleCopy}
-          title="Copy text"
-          className="p-1 hover:text-brand text-[#9BA5A8] rounded transition"
-        >
-          <Copy size={13} />
-        </button>
-        {onReply && (
-          <button
-            onClick={() => onReply(message)}
-            title="Reply"
-            className="p-1 hover:text-brand text-[#9BA5A8] rounded transition"
+        {/* Floating Context Dropdown Menu (Anchored to top of bubble, NEVER pushes content) */}
+        {showMenu && (
+          <div
+            ref={menuRef}
+            className={cn(
+              'absolute top-8 z-30 bg-[#151A1C] border border-[#252C2E] rounded-2xl p-1.5 shadow-2xl min-w-[140px] animate-slide-up select-none',
+              isOutgoing ? 'right-0' : 'left-0'
+            )}
           >
-            <Reply size={13} />
-          </button>
-        )}
-        {isOutgoing && onDelete && (
-          <button
-            onClick={() => onDelete(message.id)}
-            title="Delete"
-            className="p-1 hover:text-red-400 text-[#9BA5A8] rounded transition"
-          >
-            <Trash2 size={13} />
-          </button>
+            <button
+              onClick={handleReply}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-[#F5F7F7] hover:bg-[#252C2E] transition"
+            >
+              <Reply size={14} className="text-brand" />
+              <span>Reply</span>
+            </button>
+            <button
+              onClick={handleCopy}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-[#F5F7F7] hover:bg-[#252C2E] transition"
+            >
+              <Copy size={14} className="text-blue-400" />
+              <span>Copy</span>
+            </button>
+            {isOutgoing && onDelete && (
+              <button
+                onClick={handleDelete}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:bg-red-500/10 transition"
+              >
+                <Trash2 size={14} />
+                <span>Delete</span>
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>

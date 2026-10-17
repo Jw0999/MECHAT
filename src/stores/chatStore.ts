@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
-import type { Conversation, Message, Profile, MessageType } from '@/types/database.types';
+import type {
+  Conversation,
+  Message,
+  Profile,
+  MessageType,
+  ConversationMember,
+} from '@/types/database.types';
+import { DEMO_PROFILES } from '@/lib/constants/demoProfiles';
 import { useAuthStore } from './authStore';
 import { toast } from 'sonner';
 
@@ -32,7 +39,25 @@ interface ChatState {
   ) => Promise<boolean>;
   deleteMessage: (messageId: string, conversationId: string) => Promise<void>;
   createDirectConversation: (targetUserId: string) => Promise<string | null>;
-  createGroup: (title: string, memberIds: string[], avatarUrl?: string) => Promise<string | null>;
+  createGroup: (
+    title: string,
+    memberIds: string[],
+    description?: string,
+    avatarUrl?: string
+  ) => Promise<string | null>;
+  updateGroupDetails: (
+    conversationId: string,
+    updates: { title?: string; description?: string; avatar_url?: string }
+  ) => Promise<boolean>;
+  addGroupMembers: (conversationId: string, userIds: string[]) => Promise<boolean>;
+  removeGroupMember: (conversationId: string, userId: string) => Promise<boolean>;
+  toggleGroupAdmin: (
+    conversationId: string,
+    userId: string,
+    makeAdmin: boolean
+  ) => Promise<boolean>;
+  leaveGroup: (conversationId: string) => Promise<boolean>;
+  toggleMuteGroup: (conversationId: string) => Promise<boolean>;
   markAsRead: (conversationId: string) => Promise<void>;
   setTyping: (conversationId: string, isTyping: boolean) => void;
   subscribeToConversation: (conversationId: string) => void;
@@ -273,12 +298,72 @@ const DEMO_CONVERSATIONS: Conversation[] = [
     id: 'conv-group-product',
     type: 'group',
     title: 'Design Guild 🎨',
-    avatar_url: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
+    description:
+      'Official guild space for MeChat UI/UX designers, product architects, and design system contributors. Share mockups, critiques, and design tokens here.',
+    avatar_url:
+      'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
     created_by: 'demo-user-1',
     last_message_at: '2026-10-17T16:20:00Z',
     created_at: '2026-10-15T10:00:00Z',
     updated_at: '2026-10-17T16:20:00Z',
     unread_count: 1,
+    members: [
+      {
+        id: 'mem-guild-1',
+        conversation_id: 'conv-group-product',
+        user_id: 'demo-user-1',
+        role: 'admin',
+        is_favorite: true,
+        is_muted: false,
+        last_read_at: '2026-10-17T16:20:00Z',
+        joined_at: '2026-10-15T10:00:00Z',
+        profile: DEMO_PROFILES[0],
+      },
+      {
+        id: 'mem-guild-2',
+        conversation_id: 'conv-group-product',
+        user_id: 'demo-user-2',
+        role: 'admin',
+        is_favorite: false,
+        is_muted: false,
+        last_read_at: '2026-10-17T16:20:00Z',
+        joined_at: '2026-10-15T10:05:00Z',
+        profile: DEMO_PROFILES[1],
+      },
+      {
+        id: 'mem-guild-3',
+        conversation_id: 'conv-group-product',
+        user_id: 'demo-user-satria',
+        role: 'member',
+        is_favorite: false,
+        is_muted: false,
+        last_read_at: '2026-10-17T16:15:00Z',
+        joined_at: '2026-10-15T10:10:00Z',
+        profile: DEMO_PROFILES[2],
+      },
+      {
+        id: 'mem-guild-4',
+        conversation_id: 'conv-group-product',
+        user_id: 'demo-user-alex',
+        role: 'member',
+        is_favorite: false,
+        is_muted: false,
+        last_read_at: '2026-10-17T16:00:00Z',
+        joined_at: '2026-10-15T10:15:00Z',
+        profile: DEMO_PROFILES[3],
+      },
+      {
+        id: 'mem-guild-5',
+        conversation_id: 'conv-group-product',
+        user_id: 'demo-user-jake',
+        role: 'member',
+        is_favorite: false,
+        is_muted: false,
+        last_read_at: '2026-10-17T15:30:00Z',
+        joined_at: '2026-10-15T10:20:00Z',
+        profile: DEMO_PROFILES[4],
+      },
+    ],
     last_message: {
       id: 'msg-group-1',
       conversation_id: 'conv-group-product',
@@ -291,6 +376,70 @@ const DEMO_CONVERSATIONS: Conversation[] = [
       deleted_at: null,
       created_at: '2026-10-17T16:20:00Z',
       updated_at: '2026-10-17T16:20:00Z',
+      sender: DEMO_PROFILES[1],
+    },
+  },
+  {
+    id: 'conv-group-mobile',
+    type: 'group',
+    title: 'MeChat Core Team 🚀',
+    description:
+      'Engineering coordination channel for Supabase Realtime, WebRTC audio/video calling, and PWA service worker caching.',
+    avatar_url:
+      'https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=150&auto=format&fit=crop&q=80',
+    created_by: 'demo-user-1',
+    last_message_at: '2026-10-17T15:10:00Z',
+    created_at: '2026-10-14T09:00:00Z',
+    updated_at: '2026-10-17T15:10:00Z',
+    unread_count: 0,
+    members: [
+      {
+        id: 'mem-core-1',
+        conversation_id: 'conv-group-mobile',
+        user_id: 'demo-user-1',
+        role: 'admin',
+        is_favorite: true,
+        is_muted: false,
+        last_read_at: '2026-10-17T15:10:00Z',
+        joined_at: '2026-10-14T09:00:00Z',
+        profile: DEMO_PROFILES[0],
+      },
+      {
+        id: 'mem-core-2',
+        conversation_id: 'conv-group-mobile',
+        user_id: 'demo-user-satria',
+        role: 'member',
+        is_favorite: false,
+        is_muted: false,
+        last_read_at: '2026-10-17T15:10:00Z',
+        joined_at: '2026-10-14T09:05:00Z',
+        profile: DEMO_PROFILES[2],
+      },
+      {
+        id: 'mem-core-3',
+        conversation_id: 'conv-group-mobile',
+        user_id: 'demo-user-alex',
+        role: 'member',
+        is_favorite: false,
+        is_muted: false,
+        last_read_at: '2026-10-17T15:10:00Z',
+        joined_at: '2026-10-14T09:10:00Z',
+        profile: DEMO_PROFILES[3],
+      },
+    ],
+    last_message: {
+      id: 'msg-group-core-1',
+      conversation_id: 'conv-group-mobile',
+      sender_id: 'demo-user-satria',
+      content: 'WebRTC audio ringtones and STUN candidates are working flawlessly!',
+      message_type: 'text',
+      reply_to_message_id: null,
+      metadata: {},
+      is_read: true,
+      deleted_at: null,
+      created_at: '2026-10-17T15:10:00Z',
+      updated_at: '2026-10-17T15:10:00Z',
+      sender: DEMO_PROFILES[2],
     },
   },
 ];
@@ -662,6 +811,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             id,
             type,
             title,
+            description,
             avatar_url,
             created_by,
             last_message_at,
@@ -694,6 +844,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
         }
 
+        // Fetch group members if group
+        let groupMembers: ConversationMember[] = [];
+        if (conv.type === 'group') {
+          const { data: memberData } = await supabase
+            .from('conversation_members')
+            .select('id, conversation_id, user_id, role, is_favorite, is_muted, last_read_at, joined_at, profiles(*)')
+            .eq('conversation_id', conv.id);
+          if (memberData) {
+            groupMembers = memberData.map((m: any) => ({
+              ...m,
+              profile: m.profiles,
+            }));
+          }
+        }
+
         // Fetch last message
         const { data: lastMsg } = await supabase
           .from('messages')
@@ -715,6 +880,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         loadedList.push({
           ...conv,
           other_user: otherUser,
+          members: groupMembers,
           last_message: lastMsg || null,
           unread_count: unreadCount || 0,
         });
@@ -1000,16 +1166,50 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  createGroup: async (title: string, memberIds: string[], avatarUrl?: string) => {
+  createGroup: async (
+    title: string,
+    memberIds: string[],
+    description?: string,
+    avatarUrl?: string
+  ) => {
     const { user, profile, isDemoMode } = useAuthStore.getState();
     if (!user) return null;
 
     if (isDemoMode || !isSupabaseConfigured()) {
       const newGroupId = `group-${Date.now()}`;
+      const groupMembers: ConversationMember[] = [
+        {
+          id: `mem-creator-${user.id}`,
+          conversation_id: newGroupId,
+          user_id: user.id,
+          role: 'admin',
+          is_favorite: true,
+          is_muted: false,
+          last_read_at: new Date().toISOString(),
+          joined_at: new Date().toISOString(),
+          profile: profile || DEMO_PROFILES[0],
+        },
+        ...memberIds.map((mId) => {
+          const p = DEMO_PROFILES.find((dp) => dp.id === mId);
+          return {
+            id: `mem-${Date.now()}-${mId}`,
+            conversation_id: newGroupId,
+            user_id: mId,
+            role: 'member' as const,
+            is_favorite: false,
+            is_muted: false,
+            last_read_at: new Date().toISOString(),
+            joined_at: new Date().toISOString(),
+            profile: p,
+          };
+        }),
+      ];
+
       const newGroup: Conversation = {
         id: newGroupId,
         type: 'group',
         title,
+        description: description || null,
         avatar_url:
           avatarUrl ||
           `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(title)}`,
@@ -1018,7 +1218,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         unread_count: 0,
+        members: groupMembers,
       };
+
       set((st) => ({
         conversations: [newGroup, ...st.conversations],
       }));
@@ -1034,6 +1236,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         .insert({
           type: 'group',
           title,
+          description: description || null,
           avatar_url: avatarUrl || null,
           created_by: user.id,
         })
@@ -1042,7 +1245,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (convErr) throw convErr;
 
-      // 2. Insert creator as admin
+      // 2. Insert creator as admin & invited members
       const memberInserts = [
         { conversation_id: conv.id, user_id: user.id, role: 'admin' },
         ...memberIds.map((mId) => ({
@@ -1066,6 +1269,258 @@ export const useChatStore = create<ChatState>((set, get) => ({
       toast.error(err.message || 'Failed to create group');
       return null;
     }
+  },
+
+  updateGroupDetails: async (
+    conversationId: string,
+    updates: { title?: string; description?: string; avatar_url?: string }
+  ) => {
+    const { isDemoMode } = useAuthStore.getState();
+    if (isDemoMode || !isSupabaseConfigured()) {
+      set((st) => ({
+        conversations: st.conversations.map((c) =>
+          c.id === conversationId
+            ? { ...c, ...updates, updated_at: new Date().toISOString() }
+            : c
+        ),
+      }));
+      toast.success('Group updated successfully');
+      return true;
+    }
+    try {
+      const { error } = await supabase
+        .from('conversations')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', conversationId);
+      if (error) throw error;
+      set((st) => ({
+        conversations: st.conversations.map((c) =>
+          c.id === conversationId
+            ? { ...c, ...updates, updated_at: new Date().toISOString() }
+            : c
+        ),
+      }));
+      toast.success('Group updated successfully');
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update group');
+      return false;
+    }
+  },
+
+  addGroupMembers: async (conversationId: string, userIds: string[]) => {
+    const { isDemoMode } = useAuthStore.getState();
+    if (isDemoMode || !isSupabaseConfigured()) {
+      const newMembers: ConversationMember[] = userIds.map((uId) => {
+        const p = DEMO_PROFILES.find((dp) => dp.id === uId);
+        return {
+          id: `mem-${Date.now()}-${uId}`,
+          conversation_id: conversationId,
+          user_id: uId,
+          role: 'member',
+          is_favorite: false,
+          is_muted: false,
+          last_read_at: new Date().toISOString(),
+          joined_at: new Date().toISOString(),
+          profile: p,
+        };
+      });
+      set((st) => ({
+        conversations: st.conversations.map((c) => {
+          if (c.id === conversationId) {
+            const currentMembers = c.members || [];
+            return {
+              ...c,
+              members: [...currentMembers, ...newMembers],
+            };
+          }
+          return c;
+        }),
+      }));
+      toast.success(`Added ${userIds.length} ${userIds.length === 1 ? 'member' : 'members'}`);
+      return true;
+    }
+    try {
+      const rows = userIds.map((uId) => ({
+        conversation_id: conversationId,
+        user_id: uId,
+        role: 'member' as const,
+      }));
+      const { error } = await supabase.from('conversation_members').insert(rows);
+      if (error) throw error;
+      await get().loadConversations();
+      toast.success('Members added successfully');
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add members');
+      return false;
+    }
+  },
+
+  removeGroupMember: async (conversationId: string, userId: string) => {
+    const { isDemoMode } = useAuthStore.getState();
+    if (isDemoMode || !isSupabaseConfigured()) {
+      set((st) => ({
+        conversations: st.conversations.map((c) => {
+          if (c.id === conversationId && c.members) {
+            return {
+              ...c,
+              members: c.members.filter((m) => m.user_id !== userId),
+            };
+          }
+          return c;
+        }),
+      }));
+      toast.success('Member removed');
+      return true;
+    }
+    try {
+      const { error } = await supabase
+        .from('conversation_members')
+        .delete()
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId);
+      if (error) throw error;
+      set((st) => ({
+        conversations: st.conversations.map((c) => {
+          if (c.id === conversationId && c.members) {
+            return {
+              ...c,
+              members: c.members.filter((m) => m.user_id !== userId),
+            };
+          }
+          return c;
+        }),
+      }));
+      toast.success('Member removed');
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to remove member');
+      return false;
+    }
+  },
+
+  toggleGroupAdmin: async (
+    conversationId: string,
+    userId: string,
+    makeAdmin: boolean
+  ) => {
+    const newRole = makeAdmin ? 'admin' : 'member';
+    const { isDemoMode } = useAuthStore.getState();
+    if (isDemoMode || !isSupabaseConfigured()) {
+      set((st) => ({
+        conversations: st.conversations.map((c) => {
+          if (c.id === conversationId && c.members) {
+            return {
+              ...c,
+              members: c.members.map((m) =>
+                m.user_id === userId ? { ...m, role: newRole } : m
+              ),
+            };
+          }
+          return c;
+        }),
+      }));
+      toast.success(makeAdmin ? 'Promoted to Group Admin' : 'Dismissed as Admin');
+      return true;
+    }
+    try {
+      const { error } = await supabase
+        .from('conversation_members')
+        .update({ role: newRole })
+        .eq('conversation_id', conversationId)
+        .eq('user_id', userId);
+      if (error) throw error;
+      set((st) => ({
+        conversations: st.conversations.map((c) => {
+          if (c.id === conversationId && c.members) {
+            return {
+              ...c,
+              members: c.members.map((m) =>
+                m.user_id === userId ? { ...m, role: newRole } : m
+              ),
+            };
+          }
+          return c;
+        }),
+      }));
+      toast.success(makeAdmin ? 'Promoted to Group Admin' : 'Dismissed as Admin');
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update member role');
+      return false;
+    }
+  },
+
+  leaveGroup: async (conversationId: string) => {
+    const { user, isDemoMode } = useAuthStore.getState();
+    if (!user) return false;
+    if (isDemoMode || !isSupabaseConfigured()) {
+      set((st) => ({
+        conversations: st.conversations.filter((c) => c.id !== conversationId),
+        activeConversationId:
+          st.activeConversationId === conversationId ? null : st.activeConversationId,
+      }));
+      toast.success('You have left the group');
+      return true;
+    }
+    try {
+      const { error } = await supabase
+        .from('conversation_members')
+        .delete()
+        .eq('conversation_id', conversationId)
+        .eq('user_id', user.id);
+      if (error) throw error;
+      set((st) => ({
+        conversations: st.conversations.filter((c) => c.id !== conversationId),
+        activeConversationId:
+          st.activeConversationId === conversationId ? null : st.activeConversationId,
+      }));
+      toast.success('You have left the group');
+      return true;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to leave group');
+      return false;
+    }
+  },
+
+  toggleMuteGroup: async (conversationId: string) => {
+    const { user, isDemoMode } = useAuthStore.getState();
+    if (!user) return false;
+
+    let nextMuted = false;
+    set((st) => ({
+      conversations: st.conversations.map((c) => {
+        if (c.id === conversationId && c.members) {
+          const myMem = c.members.find((m) => m.user_id === user.id);
+          nextMuted = !myMem?.is_muted;
+          return {
+            ...c,
+            members: c.members.map((m) =>
+              m.user_id === user.id ? { ...m, is_muted: nextMuted } : m
+            ),
+          };
+        }
+        return c;
+      }),
+    }));
+
+    toast.success(
+      nextMuted ? 'Group notifications muted' : 'Group notifications unmuted'
+    );
+
+    if (!isDemoMode && isSupabaseConfigured()) {
+      try {
+        await supabase
+          .from('conversation_members')
+          .update({ is_muted: nextMuted })
+          .eq('conversation_id', conversationId)
+          .eq('user_id', user.id);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return true;
   },
 
   markAsRead: async (conversationId: string) => {

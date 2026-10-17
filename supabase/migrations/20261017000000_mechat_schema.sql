@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS public.conversations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     type TEXT NOT NULL CHECK (type IN ('direct', 'group')),
     title TEXT,
+    description TEXT,
     avatar_url TEXT,
     created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
     last_message_at TIMESTAMPTZ DEFAULT NOW(),

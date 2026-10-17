@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Users, Check, Sparkles } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import type { Profile } from '@/types/database.types';
+import { DEMO_PROFILES } from '@/lib/constants/demoProfiles';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
 import { toast } from 'sonner';
@@ -13,6 +14,7 @@ interface CreateGroupModalProps {
 
 export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onClose }) => {
   const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -26,64 +28,7 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
 
     const fetchCandidates = async () => {
       if (isDemoMode || !isSupabaseConfigured()) {
-        setProfiles([
-          {
-            id: 'demo-user-2',
-            username: 'ninaflora',
-            display_name: 'Nina Flora',
-            avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-            bio: '',
-            online_status: 'online',
-            last_seen: '',
-            privacy_online: true,
-            privacy_last_seen: true,
-            privacy_read_receipts: true,
-            created_at: '',
-            updated_at: '',
-          },
-          {
-            id: 'demo-user-danang',
-            username: 'danangcalvin',
-            display_name: 'Danang Calvin',
-            avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
-            bio: '',
-            online_status: 'offline',
-            last_seen: '',
-            privacy_online: true,
-            privacy_last_seen: true,
-            privacy_read_receipts: true,
-            created_at: '',
-            updated_at: '',
-          },
-          {
-            id: 'demo-user-satria',
-            username: 'satriah',
-            display_name: 'Satria herman',
-            avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
-            bio: '',
-            online_status: 'online',
-            last_seen: '',
-            privacy_online: true,
-            privacy_last_seen: true,
-            privacy_read_receipts: true,
-            created_at: '',
-            updated_at: '',
-          },
-          {
-            id: 'demo-user-alex',
-            username: 'alexander',
-            display_name: 'Alexander',
-            avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-            bio: '',
-            online_status: 'online',
-            last_seen: '',
-            privacy_online: true,
-            privacy_last_seen: true,
-            privacy_read_receipts: true,
-            created_at: '',
-            updated_at: '',
-          },
-        ]);
+        setProfiles(DEMO_PROFILES.filter((p) => p.id !== currentUser?.id));
         return;
       }
 
@@ -122,7 +67,11 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
     }
 
     setIsSubmitting(true);
-    const res = await createGroup(title.trim(), selectedUserIds);
+    const res = await createGroup(
+      title.trim(),
+      selectedUserIds,
+      description.trim() || undefined
+    );
     setIsSubmitting(false);
 
     if (res) {
@@ -160,6 +109,19 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
               onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Design Team 🎨"
               className="w-full bg-[#1E2325] dark:bg-[#1E2325] light:bg-[#E9EDE8] text-sm text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] placeholder-[#9BA5A8] rounded-xl px-4 py-2.5 border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] focus:outline-none focus:border-brand transition"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[#9BA5A8] mb-1.5">
+              Group Description (optional)
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What's this group about?"
+              rows={2}
+              className="w-full bg-[#1E2325] dark:bg-[#1E2325] light:bg-[#E9EDE8] text-xs text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] placeholder-[#9BA5A8] rounded-xl px-4 py-2 border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] focus:outline-none focus:border-brand transition resize-none"
             />
           </div>
 

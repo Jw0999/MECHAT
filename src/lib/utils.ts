@@ -30,6 +30,16 @@ export function formatChatTimestamp(dateString: string): string {
   }
 }
 
+export function formatDate(dateString?: string | null): string {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    return format(date, 'MMM d, yyyy');
+  } catch {
+    return '';
+  }
+}
+
 export function formatLastSeen(dateString?: string | null): string {
   if (!dateString) return 'Offline';
   try {
