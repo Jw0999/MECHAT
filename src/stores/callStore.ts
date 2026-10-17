@@ -113,7 +113,7 @@ const INITIAL_CALL_HISTORY: CallLog[] = [
 ];
 
 export const useCallStore = create<CallState>((set, get) => ({
-  callHistory: INITIAL_CALL_HISTORY,
+  callHistory: isSupabaseConfigured() ? [] : INITIAL_CALL_HISTORY,
   activeCall: null,
   timerInterval: null,
   webrtcManager: null,

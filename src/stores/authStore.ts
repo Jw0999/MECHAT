@@ -100,25 +100,28 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const configured = isSupabaseConfigured();
     set({ isConfigured: configured });
 
-    // Check if demo user is stored in localStorage
-    const savedDemo = safeStorage.get('mechat_demo_user');
-    if (savedDemo) {
-      try {
-        const parsed = JSON.parse(savedDemo);
-        set({
-          user: { id: parsed.id, email: `${parsed.username}@mechat.app` },
-          profile: parsed,
-          settings: { ...DEFAULT_SETTINGS, user_id: parsed.id },
-          isDemoMode: true,
-          isLoading: false,
-        });
-        return;
-      } catch (e) {
-        safeStorage.remove('mechat_demo_user');
+    if (configured) {
+      // In real Supabase mode: ensure demo user data is cleared
+      safeStorage.remove('mechat_demo_user');
+    } else {
+      // Fallback preview mode when keys are not configured yet
+      const savedDemo = safeStorage.get('mechat_demo_user');
+      if (savedDemo) {
+        try {
+          const parsed = JSON.parse(savedDemo);
+          set({
+            user: { id: parsed.id, email: `${parsed.username}@mechat.app` },
+            profile: parsed,
+            settings: { ...DEFAULT_SETTINGS, user_id: parsed.id },
+            isDemoMode: true,
+            isLoading: false,
+          });
+          return;
+        } catch (e) {
+          safeStorage.remove('mechat_demo_user');
+        }
       }
-    }
 
-    if (!configured) {
       set({ isLoading: false });
       return;
     }

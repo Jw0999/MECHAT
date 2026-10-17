@@ -756,17 +756,19 @@ const ROOMIE_MESSAGES: Message[] = [
 ];
 
 export const useChatStore = create<ChatState>((set, get) => ({
-  conversations: DEMO_CONVERSATIONS,
+  conversations: isSupabaseConfigured() ? [] : DEMO_CONVERSATIONS,
   activeConversationId: null,
-  messages: {
-    'conv-nina': NINA_MESSAGES,
-    'conv-group-product': GROUP_MESSAGES,
-    'conv-danang': DANANG_MESSAGES,
-    'conv-satria': SATRIA_MESSAGES,
-    'conv-alexander': ALEXANDER_MESSAGES,
-    'conv-jake': JAKE_MESSAGES,
-    'conv-roomie': ROOMIE_MESSAGES,
-  },
+  messages: isSupabaseConfigured()
+    ? ({} as Record<string, Message[]>)
+    : {
+        'conv-nina': NINA_MESSAGES,
+        'conv-group-product': GROUP_MESSAGES,
+        'conv-danang': DANANG_MESSAGES,
+        'conv-satria': SATRIA_MESSAGES,
+        'conv-alexander': ALEXANDER_MESSAGES,
+        'conv-jake': JAKE_MESSAGES,
+        'conv-roomie': ROOMIE_MESSAGES,
+      },
   filterTab: 'All',
   searchQuery: '',
   typingUsers: {},
