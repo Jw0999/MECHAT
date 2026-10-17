@@ -265,9 +265,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         password,
         options: {
           data: {
+            display_name: displayName,
             full_name: displayName,
             name: displayName,
             username: username,
+            avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
           },
         },
       });
@@ -278,12 +280,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
 
       if (data.user) {
-        // Manually ensure profile is created if trigger has delay
-        const { data: profile } = await supabase
+        // Fetch or gracefully upsert profile
+        let { data: profile } = await supabase
           .from('profiles')
           .select('*')
           .eq('id', data.user.id)
-          .single();
+          .maybeSingle();
+
+        if (!profile) {
+          const { data: createdProfile } = await supabase
+            .from('profiles')
+            .upsert({
+              id: data.user.id,
+              username,
+              display_name: displayName,
+              avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`,
+            })
+            .select('*')
+            .single();
+          profile = createdProfile;
+        }
 
         set({
           user: data.user,
