@@ -1,0 +1,953 @@
+import { create } from 'zustand';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import type { Conversation, Message, Profile, MessageType } from '@/types/database.types';
+import { useAuthStore } from './authStore';
+import { toast } from 'sonner';
+
+export type FilterTab = 'All' | 'Chats' | 'Groups' | 'Favorite';
+
+interface ChatState {
+  conversations: Conversation[];
+  activeConversationId: string | null;
+  messages: Record<string, Message[]>; // conversationId -> messages
+  filterTab: FilterTab;
+  searchQuery: string;
+  typingUsers: Record<string, string[]>;
+  isLoadingConversations: boolean;
+  isLoadingMessages: boolean;
+  realtimeChannel: any | null;
+
+  setFilterTab: (tab: FilterTab) => void;
+  setSearchQuery: (query: string) => void;
+  setActiveConversationId: (id: string | null) => void;
+
+  loadConversations: () => Promise<void>;
+  loadMessages: (conversationId: string) => Promise<void>;
+  sendMessage: (
+    conversationId: string,
+    content: string,
+    messageType?: MessageType,
+    metadata?: any,
+    replyToId?: string
+  ) => Promise<boolean>;
+  deleteMessage: (messageId: string, conversationId: string) => Promise<void>;
+  createDirectConversation: (targetUserId: string) => Promise<string | null>;
+  createGroup: (title: string, memberIds: string[], avatarUrl?: string) => Promise<string | null>;
+  markAsRead: (conversationId: string) => Promise<void>;
+  setTyping: (conversationId: string, isTyping: boolean) => void;
+  subscribeToConversation: (conversationId: string) => void;
+  unsubscribeFromConversation: () => void;
+}
+
+// Initial demo mock conversations matching the attached design reference
+const DEMO_CONVERSATIONS: Conversation[] = [
+  {
+    id: 'conv-nina',
+    type: 'direct',
+    title: null,
+    avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+    created_by: 'demo-user-1',
+    last_message_at: '2026-10-17T17:45:00Z',
+    created_at: '2026-10-17T10:00:00Z',
+    updated_at: '2026-10-17T17:45:00Z',
+    unread_count: 0,
+    other_user: {
+      id: 'demo-user-2',
+      username: 'ninaflora',
+      display_name: 'Nina Flora',
+      avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+      bio: 'Coffee lover & UI/UX explorer ☕️✨',
+      online_status: 'online',
+      last_seen: new Date().toISOString(),
+      privacy_online: true,
+      privacy_last_seen: true,
+      privacy_read_receipts: true,
+      created_at: '2026-10-17T10:00:00Z',
+      updated_at: '2026-10-17T10:00:00Z',
+    },
+    last_message: {
+      id: 'msg-6',
+      conversation_id: 'conv-nina',
+      sender_id: 'demo-user-1',
+      content: 'See you',
+      message_type: 'text',
+      reply_to_message_id: null,
+      metadata: {},
+      is_read: true,
+      deleted_at: null,
+      created_at: '2026-10-17T17:45:00Z',
+      updated_at: '2026-10-17T17:45:00Z',
+    },
+  },
+  {
+    id: 'conv-danang',
+    type: 'direct',
+    title: null,
+    avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    created_by: 'demo-user-danang',
+    last_message_at: '2026-10-17T17:45:00Z',
+    created_at: '2026-10-17T09:00:00Z',
+    updated_at: '2026-10-17T17:45:00Z',
+    unread_count: 0,
+    other_user: {
+      id: 'demo-user-danang',
+      username: 'danangcalvin',
+      display_name: 'Danang Calvin',
+      avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+      bio: 'Mobile Dev & Traveler 🎒',
+      online_status: 'offline',
+      last_seen: '2026-10-17T16:30:00Z',
+      privacy_online: true,
+      privacy_last_seen: true,
+      privacy_read_receipts: true,
+      created_at: '2026-10-17T09:00:00Z',
+      updated_at: '2026-10-17T09:00:00Z',
+    },
+    last_message: {
+      id: 'msg-danang-1',
+      conversation_id: 'conv-danang',
+      sender_id: 'demo-user-danang',
+      content: "Let's meet there at 9 PM?",
+      message_type: 'text',
+      reply_to_message_id: null,
+      metadata: {},
+      is_read: true,
+      deleted_at: null,
+      created_at: '2026-10-17T17:45:00Z',
+      updated_at: '2026-10-17T17:45:00Z',
+    },
+  },
+  {
+    id: 'conv-satria',
+    type: 'direct',
+    title: null,
+    avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+    created_by: 'demo-user-satria',
+    last_message_at: '2026-10-17T17:45:00Z',
+    created_at: '2026-10-17T08:00:00Z',
+    updated_at: '2026-10-17T17:45:00Z',
+    unread_count: 3,
+    other_user: {
+      id: 'demo-user-satria',
+      username: 'satriah',
+      display_name: 'Satria herman',
+      avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+      bio: 'Lead Engineer @ FinTech',
+      online_status: 'online',
+      last_seen: new Date().toISOString(),
+      privacy_online: true,
+      privacy_last_seen: true,
+      privacy_read_receipts: true,
+      created_at: '2026-10-17T08:00:00Z',
+      updated_at: '2026-10-17T08:00:00Z',
+    },
+    last_message: {
+      id: 'msg-satria-1',
+      conversation_id: 'conv-satria',
+      sender_id: 'demo-user-satria',
+      content: 'Please send me the updated pitch deck...',
+      message_type: 'text',
+      reply_to_message_id: null,
+      metadata: {},
+      is_read: false,
+      deleted_at: null,
+      created_at: '2026-10-17T17:45:00Z',
+      updated_at: '2026-10-17T17:45:00Z',
+    },
+  },
+  {
+    id: 'conv-alexander',
+    type: 'direct',
+    title: null,
+    avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+    created_by: 'demo-user-alex',
+    last_message_at: '2026-10-17T17:45:00Z',
+    created_at: '2026-10-17T07:00:00Z',
+    updated_at: '2026-10-17T17:45:00Z',
+    unread_count: 2,
+    other_user: {
+      id: 'demo-user-alex',
+      username: 'alexander',
+      display_name: 'Alexander',
+      avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      bio: 'Sound designer & synth enthusiast 🎹',
+      online_status: 'online',
+      last_seen: new Date().toISOString(),
+      privacy_online: true,
+      privacy_last_seen: true,
+      privacy_read_receipts: true,
+      created_at: '2026-10-17T07:00:00Z',
+      updated_at: '2026-10-17T07:00:00Z',
+    },
+    last_message: {
+      id: 'msg-alex-1',
+      conversation_id: 'conv-alexander',
+      sender_id: 'demo-user-alex',
+      content: 'Typing...',
+      message_type: 'text',
+      reply_to_message_id: null,
+      metadata: {},
+      is_read: false,
+      deleted_at: null,
+      created_at: '2026-10-17T17:45:00Z',
+      updated_at: '2026-10-17T17:45:00Z',
+    },
+  },
+  {
+    id: 'conv-jake',
+    type: 'direct',
+    title: null,
+    avatar_url: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80',
+    created_by: 'demo-user-jake',
+    last_message_at: '2026-10-17T17:45:00Z',
+    created_at: '2026-10-17T06:00:00Z',
+    updated_at: '2026-10-17T17:45:00Z',
+    unread_count: 0,
+    other_user: {
+      id: 'demo-user-jake',
+      username: 'jake',
+      display_name: 'Jake',
+      avatar_url: 'https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=150&auto=format&fit=crop&q=80',
+      bio: 'Guitar & coding 🎸💻',
+      online_status: 'offline',
+      last_seen: '2026-10-17T14:10:00Z',
+      privacy_online: true,
+      privacy_last_seen: true,
+      privacy_read_receipts: true,
+      created_at: '2026-10-17T06:00:00Z',
+      updated_at: '2026-10-17T06:00:00Z',
+    },
+    last_message: {
+      id: 'msg-jake-1',
+      conversation_id: 'conv-jake',
+      sender_id: 'demo-user-jake',
+      content: "Let me know when you're free to jam...",
+      message_type: 'text',
+      reply_to_message_id: null,
+      metadata: {},
+      is_read: true,
+      deleted_at: null,
+      created_at: '2026-10-17T17:45:00Z',
+      updated_at: '2026-10-17T17:45:00Z',
+    },
+  },
+  {
+    id: 'conv-roomie',
+    type: 'direct',
+    title: null,
+    avatar_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
+    created_by: 'demo-user-roomie',
+    last_message_at: '2026-10-17T17:45:00Z',
+    created_at: '2026-10-17T05:00:00Z',
+    updated_at: '2026-10-17T17:45:00Z',
+    unread_count: 0,
+    other_user: {
+      id: 'demo-user-roomie',
+      username: 'roomie',
+      display_name: 'Roomie',
+      avatar_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80',
+      bio: 'House rules: buy more snacks 🍕',
+      online_status: 'online',
+      last_seen: new Date().toISOString(),
+      privacy_online: true,
+      privacy_last_seen: true,
+      privacy_read_receipts: true,
+      created_at: '2026-10-17T05:00:00Z',
+      updated_at: '2026-10-17T05:00:00Z',
+    },
+    last_message: {
+      id: 'msg-roomie-1',
+      conversation_id: 'conv-roomie',
+      sender_id: 'demo-user-roomie',
+      content: "We're out of milk again 😅",
+      message_type: 'text',
+      reply_to_message_id: null,
+      metadata: {},
+      is_read: true,
+      deleted_at: null,
+      created_at: '2026-10-17T17:45:00Z',
+      updated_at: '2026-10-17T17:45:00Z',
+    },
+  },
+  {
+    id: 'conv-group-product',
+    type: 'group',
+    title: 'Design Guild 🎨',
+    avatar_url: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=150&auto=format&fit=crop&q=80',
+    created_by: 'demo-user-1',
+    last_message_at: '2026-10-17T16:20:00Z',
+    created_at: '2026-10-15T10:00:00Z',
+    updated_at: '2026-10-17T16:20:00Z',
+    unread_count: 1,
+    last_message: {
+      id: 'msg-group-1',
+      conversation_id: 'conv-group-product',
+      sender_id: 'demo-user-2',
+      content: 'Check out the new design system specs in Figma!',
+      message_type: 'text',
+      reply_to_message_id: null,
+      metadata: {},
+      is_read: false,
+      deleted_at: null,
+      created_at: '2026-10-17T16:20:00Z',
+      updated_at: '2026-10-17T16:20:00Z',
+    },
+  },
+];
+
+// Reference messages for Nina Flora conversation (Screen 3 in mockup)
+const NINA_MESSAGES: Message[] = [
+  {
+    id: 'msg-1',
+    conversation_id: 'conv-nina',
+    sender_id: 'demo-user-2', // Nina (Incoming)
+    content: "Hey! Don't forget our dinner plans tonight 🍣",
+    message_type: 'text',
+    reply_to_message_id: null,
+    metadata: {},
+    is_read: true,
+    deleted_at: null,
+    created_at: '2026-10-17T17:51:00Z',
+    updated_at: '2026-10-17T17:51:00Z',
+  },
+  {
+    id: 'msg-2',
+    conversation_id: 'conv-nina',
+    sender_id: 'demo-user-2', // Nina (Incoming)
+    content: 'I made a reservation at the new sushi place you mentioned last week.',
+    message_type: 'text',
+    reply_to_message_id: null,
+    metadata: {},
+    is_read: true,
+    deleted_at: null,
+    created_at: '2026-10-17T17:51:30Z',
+    updated_at: '2026-10-17T17:51:30Z',
+  },
+  {
+    id: 'msg-3',
+    conversation_id: 'conv-nina',
+    sender_id: 'demo-user-2', // Nina (Incoming)
+    content: "Let's meet there at 7 PM? I can pick you up if you want ☺️",
+    message_type: 'text',
+    reply_to_message_id: null,
+    metadata: {},
+    is_read: true,
+    deleted_at: null,
+    created_at: '2026-10-17T17:54:00Z',
+    updated_at: '2026-10-17T17:54:00Z',
+  },
+  {
+    id: 'msg-4',
+    conversation_id: 'conv-nina',
+    sender_id: 'demo-user-1', // You (Outgoing lime green)
+    content: "Of course! can't wait. I'll be ready by 7",
+    message_type: 'text',
+    reply_to_message_id: null,
+    metadata: {},
+    is_read: true,
+    deleted_at: null,
+    created_at: '2026-10-17T17:45:00Z',
+    updated_at: '2026-10-17T17:45:00Z',
+  },
+  {
+    id: 'msg-5',
+    conversation_id: 'conv-nina',
+    sender_id: 'demo-user-2', // Nina (Incoming)
+    content: 'Great! See you later!',
+    message_type: 'text',
+    reply_to_message_id: null,
+    metadata: {},
+    is_read: true,
+    deleted_at: null,
+    created_at: '2026-10-17T17:54:30Z',
+    updated_at: '2026-10-17T17:54:30Z',
+  },
+  {
+    id: 'msg-6',
+    conversation_id: 'conv-nina',
+    sender_id: 'demo-user-1', // You (Outgoing lime green)
+    content: 'See you',
+    message_type: 'text',
+    reply_to_message_id: null,
+    metadata: {},
+    is_read: true,
+    deleted_at: null,
+    created_at: '2026-10-17T17:45:30Z',
+    updated_at: '2026-10-17T17:45:30Z',
+  },
+];
+
+export const useChatStore = create<ChatState>((set, get) => ({
+  conversations: DEMO_CONVERSATIONS,
+  activeConversationId: null,
+  messages: {
+    'conv-nina': NINA_MESSAGES,
+  },
+  filterTab: 'All',
+  searchQuery: '',
+  typingUsers: {},
+  isLoadingConversations: false,
+  isLoadingMessages: false,
+  realtimeChannel: null,
+
+  setFilterTab: (tab) => set({ filterTab: tab }),
+  setSearchQuery: (query) => set({ searchQuery: query }),
+  setActiveConversationId: (id) => {
+    set({ activeConversationId: id });
+    if (id) {
+      get().markAsRead(id);
+      get().loadMessages(id);
+      get().subscribeToConversation(id);
+    } else {
+      get().unsubscribeFromConversation();
+    }
+  },
+
+  loadConversations: async () => {
+    const { isDemoMode } = useAuthStore.getState();
+    const currentUserId = useAuthStore.getState().user?.id;
+
+    if (isDemoMode || !isSupabaseConfigured() || !currentUserId) {
+      // In demo mode, conversations are already in state
+      return;
+    }
+
+    set({ isLoadingConversations: true });
+    try {
+      // Fetch user's conversation memberships
+      const { data: memberRows, error: memberErr } = await supabase
+        .from('conversation_members')
+        .select(`
+          conversation_id,
+          role,
+          is_favorite,
+          is_muted,
+          last_read_at,
+          conversations (
+            id,
+            type,
+            title,
+            avatar_url,
+            created_by,
+            last_message_at,
+            created_at,
+            updated_at
+          )
+        `)
+        .eq('user_id', currentUserId);
+
+      if (memberErr) throw memberErr;
+
+      const loadedList: Conversation[] = [];
+
+      for (const row of memberRows || []) {
+        const conv = row.conversations as any;
+        if (!conv) continue;
+
+        // Fetch other member for direct chat
+        let otherUser: Profile | null = null;
+        if (conv.type === 'direct') {
+          const { data: otherMember } = await supabase
+            .from('conversation_members')
+            .select('user_id, profiles(*)')
+            .eq('conversation_id', conv.id)
+            .neq('user_id', currentUserId)
+            .single();
+
+          if (otherMember && otherMember.profiles) {
+            otherUser = otherMember.profiles as unknown as Profile;
+          }
+        }
+
+        // Fetch last message
+        const { data: lastMsg } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('conversation_id', conv.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        // Calculate unread count
+        const lastRead = row.last_read_at || new Date(0).toISOString();
+        const { count: unreadCount } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('conversation_id', conv.id)
+          .neq('sender_id', currentUserId)
+          .gt('created_at', lastRead);
+
+        loadedList.push({
+          ...conv,
+          other_user: otherUser,
+          last_message: lastMsg || null,
+          unread_count: unreadCount || 0,
+        });
+      }
+
+      // Sort by last_message_at desc
+      loadedList.sort(
+        (a, b) =>
+          new Date(b.last_message_at || b.created_at).getTime() -
+          new Date(a.last_message_at || a.created_at).getTime()
+      );
+
+      set({ conversations: loadedList, isLoadingConversations: false });
+    } catch (err: any) {
+      console.error('Failed to load conversations:', err);
+      set({ isLoadingConversations: false });
+    }
+  },
+
+  loadMessages: async (conversationId: string) => {
+    const { isDemoMode } = useAuthStore.getState();
+    if (isDemoMode || !isSupabaseConfigured()) {
+      // In demo mode, if no messages exist yet for this conversation, initialize empty array
+      if (!get().messages[conversationId]) {
+        set((state) => ({
+          messages: { ...state.messages, [conversationId]: [] },
+        }));
+      }
+      return;
+    }
+
+    set({ isLoadingMessages: true });
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select(`
+          *,
+          sender:profiles(*)
+        `)
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      set((state) => ({
+        messages: {
+          ...state.messages,
+          [conversationId]: (data as any[]) || [],
+        },
+        isLoadingMessages: false,
+      }));
+    } catch (err: any) {
+      console.error('Failed to load messages:', err);
+      set({ isLoadingMessages: false });
+    }
+  },
+
+  sendMessage: async (
+    conversationId: string,
+    content: string,
+    messageType: MessageType = 'text',
+    metadata: any = {},
+    replyToId?: string
+  ) => {
+    const { user, profile, isDemoMode } = useAuthStore.getState();
+    if (!user || !profile) return false;
+
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      conversation_id: conversationId,
+      sender_id: user.id,
+      content,
+      message_type: messageType,
+      reply_to_message_id: replyToId || null,
+      metadata,
+      is_read: false,
+      deleted_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      sender: profile,
+      isSending: true,
+      hasFailed: false,
+    };
+
+    // Optimistically insert message into UI
+    set((state) => {
+      const existing = state.messages[conversationId] || [];
+      const updatedConvs = state.conversations.map((c) =>
+        c.id === conversationId
+          ? {
+              ...c,
+              last_message: optimisticMessage,
+              last_message_at: optimisticMessage.created_at,
+            }
+          : c
+      );
+      // Bring active conversation to top
+      updatedConvs.sort(
+        (a, b) =>
+          new Date(b.last_message_at || b.created_at).getTime() -
+          new Date(a.last_message_at || a.created_at).getTime()
+      );
+
+      return {
+        messages: {
+          ...state.messages,
+          [conversationId]: [...existing, optimisticMessage],
+        },
+        conversations: updatedConvs,
+      };
+    });
+
+    if (isDemoMode || !isSupabaseConfigured()) {
+      // Demo mode simulated delivery
+      setTimeout(() => {
+        set((state) => {
+          const msgs = (state.messages[conversationId] || []).map((m) =>
+            m.id === tempId ? { ...m, isSending: false } : m
+          );
+          return {
+            messages: { ...state.messages, [conversationId]: msgs },
+          };
+        });
+
+        // If chatting with Nina in demo mode, generate a realistic reply after 1.8s
+        if (conversationId === 'conv-nina' && messageType === 'text') {
+          setTimeout(() => {
+            const replyMsg: Message = {
+              id: `nina-reply-${Date.now()}`,
+              conversation_id: 'conv-nina',
+              sender_id: 'demo-user-2',
+              content: 'Sounds awesome! See you in a bit! 😊',
+              message_type: 'text',
+              reply_to_message_id: null,
+              metadata: {},
+              is_read: true,
+              deleted_at: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+            set((st) => ({
+              messages: {
+                ...st.messages,
+                [conversationId]: [...(st.messages[conversationId] || []), replyMsg],
+              },
+            }));
+          }, 1800);
+        }
+      }, 300);
+      return true;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          sender_id: user.id,
+          content,
+          message_type: messageType,
+          reply_to_message_id: replyToId || null,
+          metadata,
+        })
+        .select(`*, sender:profiles(*)`)
+        .single();
+
+      if (error) throw error;
+
+      // Replace optimistic message with actual persisted record
+      set((state) => {
+        const msgs = (state.messages[conversationId] || []).map((m) =>
+          m.id === tempId ? (data as Message) : m
+        );
+        return {
+          messages: { ...state.messages, [conversationId]: msgs },
+        };
+      });
+
+      return true;
+    } catch (err: any) {
+      console.error('Failed to send message:', err);
+      // Mark as failed in UI for retry
+      set((state) => {
+        const msgs = (state.messages[conversationId] || []).map((m) =>
+          m.id === tempId ? { ...m, isSending: false, hasFailed: true } : m
+        );
+        return {
+          messages: { ...state.messages, [conversationId]: msgs },
+        };
+      });
+      toast.error('Message failed to send. Tap to retry.');
+      return false;
+    }
+  },
+
+  deleteMessage: async (messageId: string, conversationId: string) => {
+    const { isDemoMode } = useAuthStore.getState();
+
+    // Optimistically update
+    set((state) => {
+      const msgs = (state.messages[conversationId] || []).map((m) =>
+        m.id === messageId ? { ...m, deleted_at: new Date().toISOString() } : m
+      );
+      return { messages: { ...state.messages, [conversationId]: msgs } };
+    });
+
+    if (isDemoMode || !isSupabaseConfigured()) {
+      toast.success('Message deleted');
+      return;
+    }
+
+    try {
+      await supabase
+        .from('messages')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', messageId);
+      toast.success('Message deleted');
+    } catch (err) {
+      toast.error('Failed to delete message');
+    }
+  },
+
+  createDirectConversation: async (targetUserId: string) => {
+    const { isDemoMode, user } = useAuthStore.getState();
+    if (!user) return null;
+
+    if (isDemoMode || !isSupabaseConfigured()) {
+      const existing = get().conversations.find(
+        (c) => c.type === 'direct' && c.other_user?.id === targetUserId
+      );
+      if (existing) {
+        get().setActiveConversationId(existing.id);
+        return existing.id;
+      }
+      const newConvId = `conv-direct-${Date.now()}`;
+      const newConv: Conversation = {
+        id: newConvId,
+        type: 'direct',
+        title: null,
+        avatar_url: null,
+        created_by: user.id,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        unread_count: 0,
+        other_user: {
+          id: targetUserId,
+          username: `user_${targetUserId.slice(0, 5)}`,
+          display_name: `Contact ${targetUserId.slice(0, 4)}`,
+          avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${targetUserId}`,
+          bio: '',
+          online_status: 'online',
+          last_seen: new Date().toISOString(),
+          privacy_online: true,
+          privacy_last_seen: true,
+          privacy_read_receipts: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      };
+      set((st) => ({
+        conversations: [newConv, ...st.conversations],
+      }));
+      get().setActiveConversationId(newConvId);
+      return newConvId;
+    }
+
+    try {
+      // Call Postgres atomic RPC function
+      const { data: convId, error } = await supabase.rpc(
+        'get_or_create_direct_conversation',
+        { target_user_id: targetUserId }
+      );
+
+      if (error) throw error;
+      await get().loadConversations();
+      get().setActiveConversationId(convId);
+      return convId;
+    } catch (err: any) {
+      toast.error(err.message || 'Could not start conversation');
+      return null;
+    }
+  },
+
+  createGroup: async (title: string, memberIds: string[], avatarUrl?: string) => {
+    const { user, profile, isDemoMode } = useAuthStore.getState();
+    if (!user) return null;
+
+    if (isDemoMode || !isSupabaseConfigured()) {
+      const newGroupId = `group-${Date.now()}`;
+      const newGroup: Conversation = {
+        id: newGroupId,
+        type: 'group',
+        title,
+        avatar_url:
+          avatarUrl ||
+          `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(title)}`,
+        created_by: user.id,
+        last_message_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        unread_count: 0,
+      };
+      set((st) => ({
+        conversations: [newGroup, ...st.conversations],
+      }));
+      get().setActiveConversationId(newGroupId);
+      toast.success(`Group "${title}" created!`);
+      return newGroupId;
+    }
+
+    try {
+      // 1. Insert conversation
+      const { data: conv, error: convErr } = await supabase
+        .from('conversations')
+        .insert({
+          type: 'group',
+          title,
+          avatar_url: avatarUrl || null,
+          created_by: user.id,
+        })
+        .select()
+        .single();
+
+      if (convErr) throw convErr;
+
+      // 2. Insert creator as admin
+      const memberInserts = [
+        { conversation_id: conv.id, user_id: user.id, role: 'admin' },
+        ...memberIds.map((mId) => ({
+          conversation_id: conv.id,
+          user_id: mId,
+          role: 'member',
+        })),
+      ];
+
+      const { error: memberErr } = await supabase
+        .from('conversation_members')
+        .insert(memberInserts);
+
+      if (memberErr) throw memberErr;
+
+      await get().loadConversations();
+      get().setActiveConversationId(conv.id);
+      toast.success(`Group "${title}" created!`);
+      return conv.id;
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create group');
+      return null;
+    }
+  },
+
+  markAsRead: async (conversationId: string) => {
+    const { user, isDemoMode } = useAuthStore.getState();
+    // Update local state unread count immediately
+    set((state) => ({
+      conversations: state.conversations.map((c) =>
+        c.id === conversationId ? { ...c, unread_count: 0 } : c
+      ),
+    }));
+
+    if (isDemoMode || !isSupabaseConfigured() || !user) return;
+
+    try {
+      await supabase
+        .from('conversation_members')
+        .update({ last_read_at: new Date().toISOString() })
+        .eq('conversation_id', conversationId)
+        .eq('user_id', user.id);
+    } catch (e) {
+      console.error('Error marking as read:', e);
+    }
+  },
+
+  setTyping: (conversationId: string, isTyping: boolean) => {
+    const channel = get().realtimeChannel;
+    const { profile } = useAuthStore.getState();
+    if (!channel || !profile) return;
+
+    channel.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: {
+        conversationId,
+        username: profile.display_name,
+        isTyping,
+      },
+    });
+  },
+
+  subscribeToConversation: (conversationId: string) => {
+    get().unsubscribeFromConversation();
+    if (!isSupabaseConfigured() || useAuthStore.getState().isDemoMode) return;
+
+    const channel = supabase.channel(`conversation:${conversationId}`);
+
+    channel
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          const newMsg = payload.new as Message;
+          // Fetch sender details
+          const { data: sender } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', newMsg.sender_id)
+            .single();
+
+          const completeMsg = { ...newMsg, sender: sender || undefined };
+
+          set((state) => {
+            const list = state.messages[conversationId] || [];
+            // Check if already in list
+            if (list.some((m) => m.id === completeMsg.id)) return state;
+            return {
+              messages: {
+                ...state.messages,
+                [conversationId]: [...list, completeMsg],
+              },
+            };
+          });
+
+          // Update last message in conversations list
+          set((state) => ({
+            conversations: state.conversations.map((c) =>
+              c.id === conversationId
+                ? {
+                    ...c,
+                    last_message: completeMsg,
+                    last_message_at: completeMsg.created_at,
+                  }
+                : c
+            ),
+          }));
+        }
+      )
+      .on('broadcast', { event: 'typing' }, (event) => {
+        const { username, isTyping } = event.payload || {};
+        if (!username) return;
+
+        set((state) => {
+          const currentTypers = state.typingUsers[conversationId] || [];
+          const updated = isTyping
+            ? Array.from(new Set([...currentTypers, username]))
+            : currentTypers.filter((u) => u !== username);
+
+          return {
+            typingUsers: { ...state.typingUsers, [conversationId]: updated },
+          };
+        });
+      })
+      .subscribe();
+
+    set({ realtimeChannel: channel });
+  },
+
+  unsubscribeFromConversation: () => {
+    const channel = get().realtimeChannel;
+    if (channel) {
+      supabase.removeChannel(channel);
+      set({ realtimeChannel: null });
+    }
+  },
+}));

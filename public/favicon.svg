@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="brandGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A5E548" />
+      <stop offset="100%" stop-color="#80C422" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.5" />
+    </filter>
+  </defs>
+  <!-- Background Rounded Rect -->
+  <rect width="512" height="512" rx="128" fill="#0B0F10" />
+  
+  <!-- Outer glowing chat bubble shape -->
+  <path d="M120 180 C 120 120, 160 90, 256 90 C 352 90, 392 120, 392 180 C 392 235, 360 265, 290 270 L 290 320 L 240 270 C 160 270, 120 240, 120 180 Z" fill="url(#brandGrad)" />
+  
+  <!-- Inner Chat Dots / Wave -->
+  <circle cx="210" cy="180" r="18" fill="#0B0F10" />
+  <circle cx="256" cy="180" r="18" fill="#0B0F10" />
+  <circle cx="302" cy="180" r="18" fill="#0B0F10" />
+  
+  <!-- Call Badge Overlay -->
+  <circle cx="350" cy="350" r="75" fill="#151A1C" stroke="#252C2E" stroke-width="8" filter="url(#shadow)" />
+  <path d="M330 330 C 330 325, 335 320, 340 320 C 345 320, 350 330, 352 335 C 354 340, 352 345, 348 348 C 355 358, 365 368, 375 375 C 378 371, 383 369, 388 371 C 393 373, 403 378, 403 383 C 403 388, 398 393, 393 393 C 370 393, 330 353, 330 330 Z" fill="#A5E548" transform="translate(-25, -25) scale(1.15)" />
+</svg>

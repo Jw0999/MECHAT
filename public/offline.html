@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeChat — Offline</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      background-color: #0B0F10;
+      color: #F5F7F7;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+      text-align: center;
+    }
+    .icon-box {
+      width: 80px;
+      height: 80px;
+      border-radius: 24px;
+      background: #151A1C;
+      border: 1px solid #252C2E;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+    }
+    .icon-box svg {
+      width: 40px;
+      height: 40px;
+      stroke: #A5E548;
+    }
+    h1 {
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      letter-spacing: -0.02em;
+    }
+    p {
+      color: #9BA5A8;
+      font-size: 15px;
+      line-height: 1.5;
+      max-width: 340px;
+      margin-bottom: 32px;
+    }
+    .btn {
+      background: #A5E548;
+      color: #0B0F10;
+      border: none;
+      font-weight: 600;
+      font-size: 15px;
+      padding: 14px 28px;
+      border-radius: 9999px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: transform 0.15s ease, background-color 0.15s ease;
+    }
+    .btn:active {
+      transform: scale(0.97);
+      background: #94D638;
+    }
+  </style>
+</head>
+<body>
+  <div class="icon-box">
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.5 10.5a5 5 0 017.07 0m-9.9 2.83a9 9 0 0112.73 0M6.34 6.34A13 13 0 0121.6 12M1.4 12a13 13 0 013.94-4.66" />
+    </svg>
+  </div>
+  <h1>You're Offline</h1>
+  <p>MeChat requires an active internet connection to deliver your messages and calls. Please check your network connection.</p>
+  <button class="btn" onclick="window.location.reload()">
+    Try Reconnecting
+  </button>
+</body>
+</html>
