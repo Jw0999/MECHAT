@@ -37,14 +37,14 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onSelectTab })
     },
     {
       id: 'settings' as NavTab,
-      label: 'Setting',
+      label: 'Settings',
       icon: Settings,
       badge: 0,
     },
   ];
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 pb-[env(safe-area-inset-bottom,8px)] pt-2 px-3 glass-bottom-bar border-t border-[#252C2E]/60 dark:border-[#252C2E]/60 light:border-[#E0E6DD]/80 transition-colors">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 pb-[max(10px,env(safe-area-inset-bottom,8px))] pt-2 px-3 glass-bottom-bar border-t border-[#252C2E]/60 dark:border-[#252C2E]/60 light:border-[#E0E6DD]/80 transition-colors">
       <div className="grid grid-cols-4 items-center justify-around max-w-md mx-auto">
         {navItems.map((item) => {
           const isActive = currentTab === item.id;

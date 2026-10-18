@@ -10,6 +10,8 @@ import type {
 import { DEMO_PROFILES } from '@/lib/constants/demoProfiles';
 import { useAuthStore } from './authStore';
 import { toast } from 'sonner';
+import { showPushNotification } from '@/lib/notifications';
+import { soundEffects } from '@/lib/audio/soundEffects';
 
 export type FilterTab = 'All' | 'Chats' | 'Groups' | 'Favorite';
 
@@ -23,6 +25,7 @@ interface ChatState {
   isLoadingConversations: boolean;
   isLoadingMessages: boolean;
   realtimeChannel: any | null;
+  globalRealtimeChannel: any | null;
 
   setFilterTab: (tab: FilterTab) => void;
   setSearchQuery: (query: string) => void;
@@ -62,6 +65,8 @@ interface ChatState {
   setTyping: (conversationId: string, isTyping: boolean) => void;
   subscribeToConversation: (conversationId: string) => void;
   unsubscribeFromConversation: () => void;
+  initGlobalMessageSubscription: () => void;
+  stopGlobalMessageSubscription: () => void;
   resetToDemoData: () => void;
 }
 
@@ -776,6 +781,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoadingConversations: false,
   isLoadingMessages: false,
   realtimeChannel: null,
+  globalRealtimeChannel: null,
 
   resetToDemoData: () => {
     set({
@@ -1086,16 +1092,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (error) throw error;
 
       // Replace optimistic message with actual persisted record while preserving resolved reply target
+      const persistedMsg = { ...data, reply_to_message: replyTarget } as Message;
       set((state) => {
         const msgs = (state.messages[conversationId] || []).map((m) =>
-          m.id === tempId
-            ? ({ ...data, reply_to_message: replyTarget } as Message)
-            : m
+          m.id === tempId ? persistedMsg : m
         );
         return {
           messages: { ...state.messages, [conversationId]: msgs },
         };
       });
+
+      // Broadcast over the active conversation channel for instant 0ms latency delivery
+      const activeChannel = get().realtimeChannel;
+      if (activeChannel) {
+        try {
+          activeChannel.send({
+            type: 'broadcast',
+            event: 'new_message',
+            payload: persistedMsg,
+          });
+        } catch {
+          // Channel send error non-fatal
+        }
+      }
 
       return true;
     } catch (err: any) {
@@ -1267,28 +1286,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     try {
-      // 1. Insert conversation
-      const { data: conv, error: convErr } = await supabase
+      const newGroupId = crypto.randomUUID();
+
+      // 1. Insert conversation with explicit ID so select is not blocked by membership
+      const { error: convErr } = await supabase
         .from('conversations')
         .insert({
+          id: newGroupId,
           type: 'group',
           title,
           description: description || null,
           avatar_url: avatarUrl || null,
           created_by: user.id,
-        })
-        .select()
-        .single();
+        });
 
       if (convErr) throw convErr;
 
-      // 2. Insert creator as admin & invited members
+      // 2. Insert creator as admin & any invited members
       const memberInserts = [
-        { conversation_id: conv.id, user_id: user.id, role: 'admin' },
+        { conversation_id: newGroupId, user_id: user.id, role: 'admin' },
         ...memberIds.map((mId) => ({
-          conversation_id: conv.id,
+          conversation_id: newGroupId,
           user_id: mId,
-          role: 'member',
+          role: 'member' as const,
         })),
       ];
 
@@ -1299,9 +1319,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (memberErr) throw memberErr;
 
       await get().loadConversations();
-      get().setActiveConversationId(conv.id);
+      get().setActiveConversationId(newGroupId);
       toast.success(`Group "${title}" created!`);
-      return conv.id;
+      return newGroupId;
     } catch (err: any) {
       toast.error(err.message || 'Failed to create group');
       return null;
@@ -1615,12 +1635,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         async (payload) => {
           const newMsg = payload.new as Message;
-          // Fetch sender details
+          if (!newMsg || !newMsg.id) return;
+
+          // Fetch sender details using maybeSingle()
           const { data: sender } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', newMsg.sender_id)
-            .single();
+            .maybeSingle();
 
           const completeMsg = { ...newMsg, sender: sender || undefined };
 
@@ -1650,6 +1672,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }));
         }
       )
+      .on('broadcast', { event: 'new_message' }, (event) => {
+        const msg = event.payload as Message;
+        if (!msg || !msg.id) return;
+
+        set((state) => {
+          const list = state.messages[conversationId] || [];
+          if (list.some((m) => m.id === msg.id)) return state;
+          return {
+            messages: {
+              ...state.messages,
+              [conversationId]: [...list, msg],
+            },
+          };
+        });
+
+        // Update last message in conversations list
+        set((state) => ({
+          conversations: state.conversations.map((c) =>
+            c.id === conversationId
+              ? {
+                  ...c,
+                  last_message: msg,
+                  last_message_at: msg.created_at,
+                }
+              : c
+          ),
+        }));
+      })
       .on('broadcast', { event: 'typing' }, (event) => {
         const { username, isTyping } = event.payload || {};
         if (!username) return;
@@ -1677,4 +1727,141 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set({ realtimeChannel: null });
     }
   },
+
+  initGlobalMessageSubscription: () => {
+    get().stopGlobalMessageSubscription();
+    if (!isSupabaseConfigured() || useAuthStore.getState().isDemoMode) return;
+
+    const user = useAuthStore.getState().user;
+    if (!user) return;
+
+    const channel = supabase.channel(`global-user-messages:${user.id}`);
+
+    channel
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        async (payload) => {
+          const newMsg = payload.new as Message;
+          if (!newMsg || !newMsg.conversation_id) return;
+
+          const currentUserId = useAuthStore.getState().user?.id;
+          const isOwn = newMsg.sender_id === currentUserId;
+
+          // Fetch sender info
+          const { data: sender } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', newMsg.sender_id)
+            .maybeSingle();
+
+          const completeMsg: Message = { ...newMsg, sender: sender || undefined };
+          const activeId = get().activeConversationId;
+
+          // If the user currently has this exact conversation open
+          if (activeId === newMsg.conversation_id) {
+            set((state) => {
+              const list = state.messages[activeId] || [];
+              if (list.some((m) => m.id === completeMsg.id)) return state;
+              return {
+                messages: {
+                  ...state.messages,
+                  [activeId]: [...list, completeMsg],
+                },
+              };
+            });
+
+            if (!isOwn) {
+              soundEffects.playMessageSound();
+            }
+          } else {
+            // Message is in a different conversation or user is on chat list
+            if (!isOwn) {
+              const conv = get().conversations.find((c) => c.id === newMsg.conversation_id);
+              const senderTitle =
+                conv?.type === 'group'
+                  ? conv.title
+                  : sender?.display_name || 'New message';
+
+              showPushNotification(senderTitle || 'New message', {
+                body: newMsg.content || 'Sent an attachment',
+                tag: newMsg.conversation_id,
+              });
+            }
+          }
+
+          // Update conversations list (latest message, unread badge, position)
+          set((state) => {
+            let found = false;
+            const updated = state.conversations.map((c) => {
+              if (c.id === newMsg.conversation_id) {
+                found = true;
+                const isActive = state.activeConversationId === c.id;
+                return {
+                  ...c,
+                  last_message: completeMsg,
+                  last_message_at: completeMsg.created_at,
+                  unread_count: isActive ? 0 : (c.unread_count || 0) + (isOwn ? 0 : 1),
+                };
+              }
+              return c;
+            });
+
+            if (!found) {
+              // Newly created conversation from another user: reload conversations
+              get().loadConversations();
+              return state;
+            }
+
+            // Sort with latest active conversation at top
+            updated.sort(
+              (a, b) =>
+                new Date(b.last_message_at || b.created_at).getTime() -
+                new Date(a.last_message_at || a.created_at).getTime()
+            );
+
+            return { conversations: updated };
+          });
+        }
+      )
+      .subscribe();
+
+    set({ globalRealtimeChannel: channel });
+  },
+
+  stopGlobalMessageSubscription: () => {
+    const channel = get().globalRealtimeChannel;
+    if (channel) {
+      supabase.removeChannel(channel);
+      set({ globalRealtimeChannel: null });
+    }
+  },
 }));
+
+// Automatic background re-sync on device wake, tab focus, or app resume (crucial for iOS PWA)
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      const { activeConversationId, loadConversations, loadMessages, subscribeToConversation } =
+        useChatStore.getState();
+      loadConversations();
+      if (activeConversationId) {
+        loadMessages(activeConversationId);
+        subscribeToConversation(activeConversationId);
+      }
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    const { activeConversationId, loadConversations, loadMessages } = useChatStore.getState();
+    loadConversations();
+    if (activeConversationId) {
+      loadMessages(activeConversationId);
+    }
+  });
+}
+

@@ -197,7 +197,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   };
 
   return (
-    <div className="relative p-3 bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] border-t border-[#252C2E]/60 dark:border-[#252C2E]/60 light:border-[#E0E6DD]/80 transition-colors">
+    <div className="relative px-3 pt-2.5 pb-[max(12px,calc(8px+env(safe-area-inset-bottom,0px)))] bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] border-t border-[#252C2E]/60 dark:border-[#252C2E]/60 light:border-[#E0E6DD]/80 transition-colors shrink-0 w-full">
       {/* Reply Banner */}
       {replyingTo && (
         <div className="flex items-center justify-between px-3 py-1.5 mb-2 bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#FFFFFF] border-l-4 border-brand rounded-lg text-xs">
@@ -331,7 +331,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
               onChange={(e) => setText(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Type your message..."
-              className="flex-1 bg-transparent text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] placeholder-[#9BA5A8] text-sm resize-none focus:outline-none max-h-28 py-1 leading-normal"
+              className="flex-1 min-w-0 bg-transparent text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] placeholder-[#9BA5A8] text-sm resize-none focus:outline-none max-h-28 py-1 leading-normal"
             />
 
             {/* Voice Message Record Button */}

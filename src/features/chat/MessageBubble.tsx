@@ -120,7 +120,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           setShowMenu((prev) => !prev);
         }}
         className={cn(
-          'relative px-4 py-2.5 shadow-sm text-sm transition-all select-text',
+          'relative px-4 py-2.5 shadow-sm text-sm transition-all select-text max-w-full break-words [overflow-wrap:anywhere]',
           isOutgoing
             ? 'bg-brand text-[#0B0F10] font-medium rounded-2xl rounded-tr-sm'
             : 'bg-[#292F32] dark:bg-[#292F32] light:bg-[#E9EDE8] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] rounded-2xl rounded-tl-sm'

@@ -17,10 +17,29 @@ export const AppLayout: React.FC = () => {
   const activeConversationId = useChatStore((s) => s.activeConversationId);
   const setActiveConversationId = useChatStore((s) => s.setActiveConversationId);
   const loadConversations = useChatStore((s) => s.loadConversations);
+  const initGlobalMessageSubscription = useChatStore((s) => s.initGlobalMessageSubscription);
+  const stopGlobalMessageSubscription = useChatStore((s) => s.stopGlobalMessageSubscription);
 
   useEffect(() => {
     loadConversations();
-  }, [loadConversations]);
+    initGlobalMessageSubscription();
+
+    // 10-second heartbeat check while document is visible to guarantee live sync
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        loadConversations();
+        const currentActiveId = useChatStore.getState().activeConversationId;
+        if (currentActiveId) {
+          useChatStore.getState().loadMessages(currentActiveId);
+        }
+      }
+    }, 10000);
+
+    return () => {
+      clearInterval(interval);
+      stopGlobalMessageSubscription();
+    };
+  }, [loadConversations, initGlobalMessageSubscription, stopGlobalMessageSubscription]);
 
   const handleSelectTab = (tab: NavTab) => {
     setCurrentTab(tab);
@@ -31,7 +50,7 @@ export const AppLayout: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] transition-colors">
+    <div className="flex h-[100dvh] w-full max-w-full overflow-hidden bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] transition-colors">
       {/* Offline Alert Bar */}
       <OfflineBanner />
 
@@ -39,16 +58,16 @@ export const AppLayout: React.FC = () => {
       <DesktopSidebar currentTab={currentTab} onSelectTab={handleSelectTab} />
 
       {/* Main Content Area */}
-      <main className="flex-1 flex overflow-hidden relative">
+      <main className="flex-1 flex overflow-hidden relative w-full h-full">
         {/* Mobile View: Either show active conversation or active tab */}
-        <div className="flex-1 flex md:hidden relative h-full w-full">
+        <div className="flex-1 flex md:hidden relative h-full w-full overflow-hidden">
           {activeConversationId ? (
             <ConversationDetailScreen
               conversationId={activeConversationId}
               onBack={() => setActiveConversationId(null)}
             />
           ) : (
-            <div className="flex-1 flex flex-col h-full w-full pb-[68px]">
+            <div className="flex-1 flex flex-col h-full w-full pb-[calc(56px+env(safe-area-inset-bottom,8px))] overflow-hidden">
               {currentTab === 'calling' && <CallingScreen />}
               {currentTab === 'chat' && (
                 <ChatListScreen

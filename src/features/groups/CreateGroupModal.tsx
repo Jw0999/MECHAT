@@ -61,10 +61,6 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
       toast.error('Please enter a group name');
       return;
     }
-    if (selectedUserIds.length === 0) {
-      toast.error('Please select at least 1 member');
-      return;
-    }
 
     setIsSubmitting(true);
     const res = await createGroup(
@@ -130,49 +126,55 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
               Select Members ({selectedUserIds.length} selected)
             </label>
             <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
-              {profiles.map((p) => {
-                const isSelected = selectedUserIds.includes(p.id);
-                return (
-                  <div
-                    key={p.id}
-                    onClick={() => toggleSelectUser(p.id)}
-                    className="flex items-center justify-between p-2 rounded-xl hover:bg-[#1D2326] cursor-pointer transition"
-                  >
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={
-                          p.avatar_url ||
-                          `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.username}`
-                        }
-                        alt={p.display_name}
-                        className="w-9 h-9 rounded-full object-cover border border-[#252C2E]"
-                      />
-                      <div>
-                        <p className="text-xs font-bold text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18]">
-                          {p.display_name}
-                        </p>
-                        <p className="text-[10px] text-[#9BA5A8]">@{p.username}</p>
+              {profiles.length === 0 ? (
+                <div className="p-3 rounded-xl bg-[#1D2326] text-center text-xs text-[#9BA5A8]">
+                  No other contacts found yet. You will be the group creator & admin. You can invite more members later!
+                </div>
+              ) : (
+                profiles.map((p) => {
+                  const isSelected = selectedUserIds.includes(p.id);
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => toggleSelectUser(p.id)}
+                      className="flex items-center justify-between p-2 rounded-xl hover:bg-[#1D2326] cursor-pointer transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        <img
+                          src={
+                            p.avatar_url ||
+                            `https://api.dicebear.com/7.x/avataaars/svg?seed=${p.username}`
+                          }
+                          alt={p.display_name}
+                          className="w-9 h-9 rounded-full object-cover border border-[#252C2E]"
+                        />
+                        <div>
+                          <p className="text-xs font-bold text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18]">
+                            {p.display_name}
+                          </p>
+                          <p className="text-[10px] text-[#9BA5A8]">@{p.username}</p>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
+                          isSelected
+                            ? 'bg-brand border-brand text-[#0B0F10]'
+                            : 'border-[#9BA5A8]/50'
+                        }`}
+                      >
+                        {isSelected && <Check size={12} strokeWidth={3} />}
                       </div>
                     </div>
-
-                    <div
-                      className={`w-5 h-5 rounded-full border flex items-center justify-center transition ${
-                        isSelected
-                          ? 'bg-brand border-brand text-[#0B0F10]'
-                          : 'border-[#9BA5A8]/50'
-                      }`}
-                    >
-                      {isSelected && <Check size={12} strokeWidth={3} />}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 
           <button
             type="submit"
-            disabled={isSubmitting || !title.trim() || selectedUserIds.length === 0}
+            disabled={isSubmitting || !title.trim()}
             className="w-full bg-brand hover:bg-brand-hover disabled:opacity-50 text-[#0B0F10] font-bold text-sm py-3 rounded-full transition shadow-lg shadow-brand/20"
           >
             {isSubmitting ? 'Creating...' : 'Create Group'}

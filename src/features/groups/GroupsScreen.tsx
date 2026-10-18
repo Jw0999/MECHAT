@@ -17,7 +17,7 @@ export const GroupsScreen: React.FC<GroupsScreenProps> = ({ onSelectConversation
   return (
     <div className="flex flex-col h-full bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] transition-colors overflow-hidden">
       {/* Header */}
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0">
+      <div className="px-4 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] pb-2 flex items-center justify-between shrink-0">
         <div>
           <h1 className="text-xl font-bold tracking-tight">Groups</h1>
           <p className="text-xs text-[#9BA5A8]">Collaborative team & friend spaces</p>

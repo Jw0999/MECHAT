@@ -19,6 +19,14 @@ import { EditProfileModal } from './EditProfileModal';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
+import {
+  requestPushNotificationPermission,
+  showPushNotification,
+  getNotificationPermissionStatus,
+  isIOSDevice,
+  isStandalonePWA,
+} from '@/lib/notifications';
+
 export const SettingsScreen: React.FC = () => {
   const profile = useAuthStore((s) => s.profile);
   const user = useAuthStore((s) => s.user);
@@ -32,21 +40,30 @@ export const SettingsScreen: React.FC = () => {
   const setTheme = useThemeStore((s) => s.setTheme);
 
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
+  const [notificationStatus, setNotificationStatus] = useState<string>(() =>
+    getNotificationPermissionStatus()
+  );
 
   const handleRequestNotificationPermission = async () => {
-    if (!('Notification' in window)) {
-      toast.error('This browser does not support desktop notifications');
-      return;
-    }
-    const perm = await Notification.requestPermission();
-    if (perm === 'granted') {
+    const res = await requestPushNotificationPermission();
+    setNotificationStatus(getNotificationPermissionStatus());
+
+    if (res === 'granted') {
       toast.success('Notification permission granted!');
-      new Notification('MeChat', {
-        body: 'Notifications are now enabled!',
-        icon: '/favicon.svg',
+      await showPushNotification('MeChat', {
+        body: 'Live notifications are now enabled! 🎉',
       });
+    } else if (res === 'ios_pwa_required') {
+      toast.info(
+        'On iPhone, notifications require adding MeChat to your Home Screen first (Tap Share ⎋ -> "Add to Home Screen").',
+        { duration: 7000 }
+      );
+    } else if (res === 'denied') {
+      toast.error('Notification permission was denied. Check your browser/system settings.');
+    } else if (res === 'unsupported') {
+      toast.error('This browser does not support notifications.');
     } else {
-      toast.info(`Notification permission: ${perm}`);
+      toast.info(`Notification status: ${res}`);
     }
   };
 
@@ -63,7 +80,7 @@ export const SettingsScreen: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] transition-colors overflow-y-auto">
       {/* Header */}
-      <div className="px-4 pt-3 pb-2 shrink-0">
+      <div className="px-4 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] pb-2 shrink-0">
         <h1 className="text-xl font-bold tracking-tight">Settings</h1>
         <p className="text-xs text-[#9BA5A8]">Preferences, security & account</p>
       </div>
@@ -235,14 +252,49 @@ export const SettingsScreen: React.FC = () => {
             />
           </div>
 
-          <div className="pt-2">
+          <div className="flex items-center justify-between text-xs py-1">
+            <div>
+              <p className="font-semibold text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18]">
+                Push Notification Permission
+              </p>
+              <p className="text-[11px] text-[#9BA5A8]">
+                Status:{' '}
+                <span
+                  className={cn(
+                    'font-bold',
+                    notificationStatus === 'granted'
+                      ? 'text-brand'
+                      : notificationStatus === 'denied'
+                      ? 'text-red-400'
+                      : 'text-amber-400'
+                  )}
+                >
+                  {notificationStatus === 'granted'
+                    ? 'Enabled'
+                    : notificationStatus === 'denied'
+                    ? 'Blocked'
+                    : 'Not enabled'}
+                </span>
+              </p>
+            </div>
             <button
               onClick={handleRequestNotificationPermission}
-              className="text-xs font-bold bg-[#252C2E] dark:bg-[#252C2E] light:bg-[#E9EDE8] hover:bg-brand hover:text-[#0B0F10] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] px-4 py-2 rounded-xl transition"
+              className={cn(
+                'text-xs font-bold px-3 py-1.5 rounded-xl transition shadow-sm',
+                notificationStatus === 'granted'
+                  ? 'bg-brand/20 text-brand border border-brand/40 hover:bg-brand/30'
+                  : 'bg-brand text-[#0B0F10] hover:bg-brand-hover'
+              )}
             >
-              Request Browser Notification Permission
+              {notificationStatus === 'granted' ? 'Test Notification' : 'Enable Notifications'}
             </button>
           </div>
+
+          {isIOSDevice() && !isStandalonePWA() && (
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 leading-relaxed">
+              💡 <strong>iPhone tip:</strong> To receive push notifications on iOS, tap the Share icon ⎋ at the bottom of Safari and select <strong>"Add to Home Screen"</strong>.
+            </div>
+          )}
         </div>
 
         {/* Storage & Clear Cache */}

@@ -30,3 +30,4 @@ dist-ssr
 
 # PWA service worker output
 dev-dist
+*.tsbuildinfo

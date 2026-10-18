@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, Video, Phone, Info } from 'lucide-react';
+import { ChevronLeft, Video, Phone, Info, RotateCw } from 'lucide-react';
 import { useChatStore } from '@/stores/chatStore';
 import { useCallStore } from '@/stores/callStore';
 import { MessageBubble } from './MessageBubble';
@@ -27,11 +27,13 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
   const sendMessage = useChatStore((s) => s.sendMessage);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const setTyping = useChatStore((s) => s.setTyping);
+  const loadMessages = useChatStore((s) => s.loadMessages);
 
   const initiateCall = useCallStore((s) => s.initiateCall);
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [isGroupDetailsOpen, setIsGroupDetailsOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const conversation = conversations.find((c) => c.id === conversationId);
@@ -85,11 +87,17 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
     [conversation, initiateCall]
   );
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadMessages(conversationId);
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
+
   return (
-    <div className="flex flex-col h-full bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] transition-colors overflow-hidden">
+    <div className="flex flex-col h-full w-full min-w-0 bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] transition-colors overflow-hidden">
       {/* Top Header Bar matching Screen 3 */}
-      <header className="px-3 py-2.5 flex items-center justify-between border-b border-[#252C2E]/60 dark:border-[#252C2E]/60 light:border-[#E0E6DD]/80 glass-header shrink-0 z-20">
-        <div className="flex items-center gap-2.5 min-w-0">
+      <header className="px-3 pt-[calc(0.625rem+env(safe-area-inset-top,0px))] pb-2.5 flex items-center justify-between border-b border-[#252C2E]/60 dark:border-[#252C2E]/60 light:border-[#E0E6DD]/80 glass-header shrink-0 z-20">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
           {/* Back button */}
           <button
             onClick={onBack}
@@ -102,7 +110,7 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
           {/* Contact Avatar + online dot & Name (clickable for group info) */}
           <div
             onClick={() => isGroup && setIsGroupDetailsOpen(true)}
-            className={`flex items-center gap-2.5 min-w-0 ${
+            className={`flex items-center gap-2.5 min-w-0 flex-1 ${
               isGroup ? 'cursor-pointer hover:opacity-85 transition' : ''
             }`}
             title={isGroup ? 'View group info & description' : undefined}
@@ -119,7 +127,7 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
             </div>
 
             {/* Name & Subtitle / Last seen */}
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <h2 className="text-sm font-bold text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] truncate leading-tight">
                 {title}
               </h2>
@@ -128,36 +136,43 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
           </div>
         </div>
 
-        {/* Video, Phone & Group Info Action Buttons */}
+        {/* Action Buttons: Refresh, Video, Phone & Group Info */}
         <div className="flex items-center gap-1 shrink-0">
           <button
+            onClick={handleRefresh}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-[#9BA5A8] hover:text-brand hover:bg-[#151A1C] dark:hover:bg-[#151A1C] light:hover:bg-[#E9EDE8] transition"
+            title="Refresh messages"
+          >
+            <RotateCw size={17} className={isRefreshing ? 'animate-spin text-brand' : ''} />
+          </button>
+          <button
             onClick={() => handleStartCall('video')}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] hover:bg-[#151A1C] dark:hover:bg-[#151A1C] light:hover:bg-[#E9EDE8] hover:text-brand transition"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] hover:bg-[#151A1C] dark:hover:bg-[#151A1C] light:hover:bg-[#E9EDE8] hover:text-brand transition"
             title="Video call"
           >
-            <Video size={20} />
+            <Video size={19} />
           </button>
           <button
             onClick={() => handleStartCall('audio')}
-            className="w-9 h-9 rounded-full flex items-center justify-center text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] hover:bg-[#151A1C] dark:hover:bg-[#151A1C] light:hover:bg-[#E9EDE8] hover:text-brand transition"
+            className="w-8 h-8 rounded-full flex items-center justify-center text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] hover:bg-[#151A1C] dark:hover:bg-[#151A1C] light:hover:bg-[#E9EDE8] hover:text-brand transition"
             title="Audio call"
           >
-            <Phone size={19} />
+            <Phone size={18} />
           </button>
           {isGroup && (
             <button
               onClick={() => setIsGroupDetailsOpen(true)}
-              className="w-9 h-9 rounded-full flex items-center justify-center text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] hover:bg-[#151A1C] dark:hover:bg-[#151A1C] light:hover:bg-[#E9EDE8] hover:text-brand transition"
+              className="w-8 h-8 rounded-full flex items-center justify-center text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] hover:bg-[#151A1C] dark:hover:bg-[#151A1C] light:hover:bg-[#E9EDE8] hover:text-brand transition"
               title="Group info & description"
             >
-              <Info size={19} />
+              <Info size={18} />
             </button>
           )}
         </div>
       </header>
 
       {/* Message History Stream */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
+      <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-1.5 overscroll-contain">
         {/* Date Divider: "Today" */}
         <div className="flex items-center justify-center my-3 select-none">
           <span className="text-[11px] font-semibold text-[#9BA5A8] bg-[#151A1C]/80 dark:bg-[#151A1C]/80 light:bg-[#E9EDE8] px-3 py-1 rounded-full border border-[#252C2E]/60 dark:border-[#252C2E]/60 light:border-[#E0E6DD]">

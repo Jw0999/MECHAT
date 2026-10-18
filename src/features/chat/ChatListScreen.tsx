@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MoreHorizontal, Search, Plus, Check, CheckCheck } from 'lucide-react';
+import { MoreHorizontal, Search, Plus, Check, CheckCheck, RotateCw } from 'lucide-react';
 import { useChatStore, type FilterTab } from '@/stores/chatStore';
 import { formatChatTimestamp, cn } from '@/lib/utils';
 import { NewChatModal } from './NewChatModal';
@@ -18,10 +18,12 @@ export const ChatListScreen: React.FC<ChatListScreenProps> = ({
   const setFilterTab = useChatStore((s) => s.setFilterTab);
   const searchQuery = useChatStore((s) => s.searchQuery);
   const setSearchQuery = useChatStore((s) => s.setSearchQuery);
+  const loadConversations = useChatStore((s) => s.loadConversations);
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const filterTabs: FilterTab[] = ['All', 'Chats', 'Groups', 'Favorite'];
 
@@ -46,10 +48,16 @@ export const ChatListScreen: React.FC<ChatListScreenProps> = ({
     return true;
   });
 
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await loadConversations();
+    setTimeout(() => setIsRefreshing(false), 500);
+  };
+
   return (
     <div className="flex flex-col h-full bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5] text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] transition-colors overflow-hidden">
       {/* Top Header Bar */}
-      <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0">
+      <div className="px-4 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] pb-2 flex items-center justify-between shrink-0">
         {/* Menu 3-dots Button */}
         <div className="relative">
           <button
@@ -86,8 +94,16 @@ export const ChatListScreen: React.FC<ChatListScreenProps> = ({
           )}
         </div>
 
-        {/* Right Action Icons: Search & + Button */}
-        <div className="flex items-center gap-2.5">
+        {/* Right Action Icons: Refresh, Search & + Button */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            className="w-10 h-10 rounded-full bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#FFFFFF] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] flex items-center justify-center text-[#9BA5A8] hover:text-brand transition"
+            title="Refresh chats"
+          >
+            <RotateCw size={17} className={isRefreshing ? 'animate-spin text-brand' : ''} />
+          </button>
+
           <button
             onClick={() => setIsSearchOpen((prev) => !prev)}
             className={cn(

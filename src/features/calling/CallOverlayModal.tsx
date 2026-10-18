@@ -165,7 +165,7 @@ export const CallOverlayModal: React.FC = () => {
           )}
 
           {/* Local Camera (Picture-in-Picture) */}
-          <div className="absolute top-6 right-6 w-32 sm:w-44 aspect-[3/4] bg-[#151A1C] rounded-2xl overflow-hidden border-2 border-brand/50 shadow-2xl z-20 flex items-center justify-center group">
+          <div className="absolute top-[calc(1.5rem+env(safe-area-inset-top,0px))] right-4 sm:right-6 w-32 sm:w-44 aspect-[3/4] bg-[#151A1C] rounded-2xl overflow-hidden border-2 border-brand/50 shadow-2xl z-20 flex items-center justify-center group">
             {hasLocalVideo ? (
               <video
                 ref={setLocalVideo}
@@ -200,7 +200,7 @@ export const CallOverlayModal: React.FC = () => {
 
           {/* Connected Call Header */}
           {activeCall.status === 'connected' && (
-            <div className="absolute top-8 left-6 z-20 flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
+            <div className="absolute top-[calc(1.5rem+env(safe-area-inset-top,0px))] left-4 sm:left-6 z-20 flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10">
               <span className="w-2.5 h-2.5 rounded-full bg-brand animate-pulse" />
               <span className="text-sm font-bold">{remoteUser?.display_name}</span>
               <span className="text-xs font-mono text-[#9BA5A8]">
@@ -262,7 +262,7 @@ export const CallOverlayModal: React.FC = () => {
       )}
 
       {/* Floating Controls Bar at Bottom */}
-      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-30 flex items-center gap-4 bg-[#151A1C]/90 backdrop-blur-md px-6 py-3.5 rounded-full border border-[#252C2E] shadow-2xl">
+      <div className="absolute bottom-[max(18px,calc(1.25rem+env(safe-area-inset-bottom,0px)))] left-1/2 -translate-x-1/2 z-30 flex items-center gap-4 bg-[#151A1C]/90 backdrop-blur-md px-6 py-3.5 rounded-full border border-[#252C2E] shadow-2xl">
         {isIncoming ? (
           /* Incoming Call Accept / Decline Buttons */
           <div className="flex items-center gap-8">

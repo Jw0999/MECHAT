@@ -158,7 +158,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
 CREATE POLICY "Users can view conversations they belong to"
     ON public.conversations FOR SELECT
     TO authenticated
-    USING (public.is_conversation_member(id));
+    USING (created_by = auth.uid() OR public.is_conversation_member(id));
 
 CREATE POLICY "Users can create conversations"
     ON public.conversations FOR INSERT
@@ -332,6 +332,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- ====================================================================
 -- REALTIME REPLICATION ENABLEMENT
 -- ====================================================================
+ALTER TABLE public.messages REPLICA IDENTITY FULL;
+ALTER TABLE public.conversations REPLICA IDENTITY FULL;
+ALTER TABLE public.conversation_members REPLICA IDENTITY FULL;
+ALTER TABLE public.call_logs REPLICA IDENTITY FULL;
+
 DO $$
 BEGIN
     IF NOT EXISTS (
