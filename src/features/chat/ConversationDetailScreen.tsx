@@ -204,6 +204,7 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
 
       {/* Bottom Message Composer */}
       <MessageComposer
+        conversationId={conversationId}
         onSendMessage={handleSendMessage}
         replyingTo={replyingTo}
         onCancelReply={() => setReplyingTo(null)}

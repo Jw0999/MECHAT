@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { Message } from '@/types/database.types';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
-import { formatMessageTime, cn } from '@/lib/utils';
+import { formatMessageTime, formatFileSize, cn } from '@/lib/utils';
 import {
   Check,
   CheckCheck,
@@ -14,8 +14,13 @@ import {
   Clock,
   AlertCircle,
   MoreVertical,
+  FileText,
+  Download,
+  Maximize2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { downloadFile } from '@/lib/storage';
+import { ImageViewerModal } from './ImageViewerModal';
 
 interface MessageBubbleProps {
   message: Message;
@@ -41,6 +46,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
       : null);
 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -184,16 +190,95 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
         {/* Image Attachment */}
         {message.message_type === 'image' && (
-          <div className="space-y-1">
-            <img
-              src={message.metadata?.file_url || message.content}
-              alt="Attachment"
-              className="rounded-xl max-h-72 w-auto object-cover cursor-pointer hover:opacity-95 transition"
-              onClick={() => window.open(message.metadata?.file_url || message.content, '_blank')}
-            />
-            {message.content && message.content !== message.metadata?.file_url && (
-              <p className="whitespace-pre-wrap break-words text-xs pt-1">{message.content}</p>
-            )}
+          <div className="space-y-1.5 max-w-sm">
+            <div
+              onClick={() => setIsImageViewerOpen(true)}
+              className="relative group/img cursor-pointer rounded-2xl overflow-hidden border border-black/15 shadow-sm"
+              title="Tap to see full picture"
+            >
+              <img
+                src={message.metadata?.file_url || message.content}
+                alt={message.metadata?.file_name || 'Attachment'}
+                className="rounded-2xl max-h-72 w-full object-cover transition-transform duration-200 group-hover/img:scale-[1.02]"
+              />
+              <div className="absolute inset-0 bg-black/35 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                <div className="w-10 h-10 rounded-full bg-black/60 text-white flex items-center justify-center backdrop-blur-md shadow-lg">
+                  <Maximize2 size={18} />
+                </div>
+              </div>
+            </div>
+
+            {message.content &&
+              message.content !== message.metadata?.file_url && (
+                <p className="whitespace-pre-wrap break-words text-xs pt-1 px-1">{message.content}</p>
+              )}
+          </div>
+        )}
+
+        {/* Document / File Attachment */}
+        {message.message_type === 'file' && (
+          <div className="space-y-1.5 min-w-[210px] max-w-[280px]">
+            <div
+              className={cn(
+                'flex items-center gap-3 p-2.5 rounded-2xl border transition shadow-sm',
+                isOutgoing
+                  ? 'bg-black/15 border-black/20 text-[#0B0F10]'
+                  : 'bg-[#181E20] border-[#252C2E] text-[#F5F7F7]'
+              )}
+            >
+              <div
+                className={cn(
+                  'w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm',
+                  isOutgoing
+                    ? 'bg-[#0B0F10] text-brand'
+                    : 'bg-brand/20 text-brand'
+                )}
+              >
+                <FileText size={22} />
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold truncate leading-tight">
+                  {message.metadata?.file_name || 'Document'}
+                </p>
+                <p
+                  className={cn(
+                    'text-[10px] mt-0.5',
+                    isOutgoing ? 'text-[#0B0F10]/75' : 'text-[#9BA5A8]'
+                  )}
+                >
+                  {formatFileSize(message.metadata?.file_size)}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadFile(
+                    message.metadata?.file_url || message.content,
+                    message.metadata?.file_name || 'document'
+                  );
+                }}
+                className={cn(
+                  'w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition active:scale-95 shadow',
+                  isOutgoing
+                    ? 'bg-[#0B0F10] text-brand hover:bg-black'
+                    : 'bg-brand text-[#0B0F10] hover:bg-brand-hover'
+                )}
+                title="Download document"
+              >
+                <Download size={16} strokeWidth={2.4} />
+              </button>
+            </div>
+
+            {message.content &&
+              message.content !== message.metadata?.file_url &&
+              message.content !== message.metadata?.file_name && (
+                <p className="whitespace-pre-wrap break-words text-xs pt-1 px-1">
+                  {message.content}
+                </p>
+              )}
           </div>
         )}
 
@@ -298,6 +383,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )}
       </div>
+
+      {/* Fullscreen Picture Lightbox Viewer */}
+      {message.message_type === 'image' && (
+        <ImageViewerModal
+          isOpen={isImageViewerOpen}
+          onClose={() => setIsImageViewerOpen(false)}
+          imageUrl={message.metadata?.file_url || message.content}
+          fileName={message.metadata?.file_name || 'photo.jpg'}
+        />
+      )}
     </div>
   );
 };

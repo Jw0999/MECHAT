@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'bun:test';
-import { formatDuration, getInitials, formatMessageTime } from '../src/lib/utils';
+import { formatDuration, getInitials, formatMessageTime, formatFileSize } from '../src/lib/utils';
 import { useChatStore } from '../src/stores/chatStore';
 import { useAuthStore } from '../src/stores/authStore';
 import { WebRTCManager } from '../src/features/calling/WebRTCManager';
@@ -24,6 +24,15 @@ describe('Chat Utilities & Formats', () => {
     const formatted = formatMessageTime(iso);
     expect(formatted.length).toBe(5);
     expect(formatted.includes(':')).toBe(true);
+  });
+
+  it('formats file sizes accurately into human readable strings', () => {
+    expect(formatFileSize(undefined)).toBe('0 B');
+    expect(formatFileSize(0)).toBe('0 B');
+    expect(formatFileSize(512)).toBe('512 B');
+    expect(formatFileSize(1024)).toBe('1.0 KB');
+    expect(formatFileSize(1048576)).toBe('1.0 MB');
+    expect(formatFileSize(2621440)).toBe('2.5 MB');
   });
 });
 
@@ -69,6 +78,48 @@ describe('Chat Reply & Calling Logic', () => {
     // Stopping media should be safe and idempotent
     manager.stopMedia();
     expect(manager.hasRemoteTracks()).toBe(false);
+  });
+
+  it('supports sending and displaying image and file messages with metadata', async () => {
+    const store = useChatStore.getState();
+
+    // 1. Send an image message
+    await store.sendMessage(
+      'conv-nina',
+      'https://example.com/photo.jpg',
+      'image',
+      {
+        file_name: 'vacation.jpg',
+        file_url: 'https://example.com/photo.jpg',
+        file_size: 204800,
+        mime_type: 'image/jpeg',
+      }
+    );
+
+    let messages = useChatStore.getState().messages['conv-nina'];
+    const sentImage = messages[messages.length - 1];
+    expect(sentImage.message_type).toBe('image');
+    expect(sentImage.metadata?.file_name).toBe('vacation.jpg');
+    expect(sentImage.metadata?.file_size).toBe(204800);
+
+    // 2. Send a document/file message
+    await store.sendMessage(
+      'conv-nina',
+      'Project_Brief.pdf',
+      'file',
+      {
+        file_name: 'Project_Brief.pdf',
+        file_url: 'https://example.com/Project_Brief.pdf',
+        file_size: 1048576,
+        mime_type: 'application/pdf',
+      }
+    );
+
+    messages = useChatStore.getState().messages['conv-nina'];
+    const sentDoc = messages[messages.length - 1];
+    expect(sentDoc.message_type).toBe('file');
+    expect(sentDoc.metadata?.file_name).toBe('Project_Brief.pdf');
+    expect(sentDoc.metadata?.file_size).toBe(1048576);
   });
 });
 

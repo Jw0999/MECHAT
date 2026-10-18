@@ -3,8 +3,10 @@ import { Send, Plus, Mic, Image, FileText, X, Square, Trash2 } from 'lucide-reac
 import { cn } from '@/lib/utils';
 import type { Message } from '@/types/database.types';
 import { toast } from 'sonner';
+import { uploadAttachment } from '@/lib/storage';
 
 interface MessageComposerProps {
+  conversationId?: string;
   onSendMessage: (
     content: string,
     messageType?: 'text' | 'image' | 'audio' | 'file',
@@ -16,6 +18,7 @@ interface MessageComposerProps {
 }
 
 export const MessageComposer: React.FC<MessageComposerProps> = ({
+  conversationId,
   onSendMessage,
   replyingTo,
   onCancelReply,
@@ -24,6 +27,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const [text, setText] = useState('');
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [pendingAttachment, setPendingAttachment] = useState<{
     file: File;
@@ -74,23 +78,40 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     }
   }, [text]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
+    if (isUploading) return;
+
     // If there is a pending image or file attachment
     if (pendingAttachment) {
-      onSendMessage(
-        pendingAttachment.previewUrl,
-        pendingAttachment.type,
-        {
-          file_name: pendingAttachment.file.name,
-          file_size: pendingAttachment.file.size,
-          mime_type: pendingAttachment.file.type,
-          file_url: pendingAttachment.previewUrl,
+      setIsUploading(true);
+      const toastId = toast.loading(`Uploading ${pendingAttachment.file.name}...`);
+      try {
+        const { url } = await uploadAttachment(
+          pendingAttachment.file,
+          conversationId || 'attachments',
+          pendingAttachment.file.name
+        );
+        toast.dismiss(toastId);
+
+        onSendMessage(
+          url,
+          pendingAttachment.type,
+          {
+            file_name: pendingAttachment.file.name,
+            file_size: pendingAttachment.file.size,
+            mime_type: pendingAttachment.file.type,
+            file_url: url,
+          }
+        );
+        setPendingAttachment(null);
+        if (text.trim()) {
+          onSendMessage(text.trim(), 'text');
+          setText('');
         }
-      );
-      setPendingAttachment(null);
-      if (text.trim()) {
-        onSendMessage(text.trim(), 'text');
-        setText('');
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to upload attachment', { id: toastId });
+      } finally {
+        setIsUploading(false);
       }
       return;
     }
@@ -164,18 +185,26 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     clearInterval(recordTimerRef.current);
     const duration = recordingSeconds;
 
-    mediaRecorderRef.current.onstop = () => {
+    mediaRecorderRef.current.onstop = async () => {
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      const audioUrl = URL.createObjectURL(audioBlob);
-
-      onSendMessage(audioUrl, 'audio', {
-        audio_duration: Math.max(duration, 1),
-        file_url: audioUrl,
-        file_name: `voice_${Date.now()}.webm`,
-      });
+      const fileName = `voice_${Date.now()}.webm`;
 
       setIsRecording(false);
       setRecordingSeconds(0);
+
+      const toastId = toast.loading('Sending voice note...');
+      const { url } = await uploadAttachment(
+        audioBlob,
+        conversationId || 'audio',
+        fileName
+      );
+      toast.dismiss(toastId);
+
+      onSendMessage(url, 'audio', {
+        audio_duration: Math.max(duration, 1),
+        file_url: url,
+        file_name: fileName,
+      });
     };
 
     mediaRecorderRef.current.stop();
@@ -349,10 +378,15 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
             {(text.trim() || pendingAttachment) && (
               <button
                 onClick={handleSend}
-                className="w-8 h-8 rounded-full bg-brand text-[#0B0F10] flex items-center justify-center hover:bg-brand-hover active:scale-95 transition shrink-0 shadow-md shadow-brand/20"
+                disabled={isUploading}
+                className="w-8 h-8 rounded-full bg-brand disabled:opacity-60 text-[#0B0F10] flex items-center justify-center hover:bg-brand-hover active:scale-95 transition shrink-0 shadow-md shadow-brand/20"
                 title="Send message"
               >
-                <Send size={16} className="translate-x-[1px]" />
+                {isUploading ? (
+                  <div className="w-4 h-4 border-2 border-[#0B0F10]/30 border-t-[#0B0F10] rounded-full animate-spin" />
+                ) : (
+                  <Send size={16} className="translate-x-[1px]" />
+                )}
               </button>
             )}
           </div>
