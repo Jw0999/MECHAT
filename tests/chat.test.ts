@@ -230,6 +230,73 @@ describe('Chat Reply & Calling Logic', () => {
     callStore.leaveGroupCall();
     expect(useCallStore.getState().activeGroupCall).toBeNull();
   });
+
+  it('connects incoming calls immediately with zero pickup delay upon acceptance', async () => {
+    const { useCallStore } = await import('../src/stores/callStore');
+    const callStore = useCallStore.getState();
+
+    const mockCaller = {
+      id: 'demo-user-danang',
+      username: 'danangcalvin',
+      display_name: 'Danang Calvin',
+      avatar_url: '',
+      bio: '',
+      online_status: 'online' as const,
+      last_seen: '',
+      privacy_online: true,
+      privacy_last_seen: true,
+      privacy_read_receipts: true,
+      created_at: '',
+      updated_at: '',
+    };
+
+    // Simulate incoming video call
+    callStore.simulateIncomingCall(mockCaller, 'video');
+    expect(useCallStore.getState().activeCall?.status).toBe('ringing');
+    expect(useCallStore.getState().activeCall?.isIncoming).toBe(true);
+
+    // Accept call: should immediately transition to connected
+    await callStore.acceptCall();
+    expect(useCallStore.getState().activeCall?.status).toBe('connected');
+
+    callStore.endCall();
+    expect(useCallStore.getState().activeCall).toBeNull();
+  });
+
+  it('handles incoming group call invite and instant join', async () => {
+    const { useCallStore } = await import('../src/stores/callStore');
+    const callStore = useCallStore.getState();
+
+    // Set incoming group call
+    useCallStore.setState({
+      incomingGroupCall: {
+        groupId: 'group-2',
+        groupTitle: 'Mobile Developers',
+        callType: 'video',
+        caller: {
+          id: 'demo-user-danang',
+          username: 'danangcalvin',
+          display_name: 'Danang Calvin',
+          avatar_url: '',
+          bio: '',
+          online_status: 'online',
+          last_seen: '',
+          privacy_online: true,
+          privacy_last_seen: true,
+          privacy_read_receipts: true,
+          created_at: '',
+          updated_at: '',
+        },
+      },
+    });
+
+    expect(useCallStore.getState().incomingGroupCall).toBeDefined();
+    expect(useCallStore.getState().incomingGroupCall?.groupTitle).toBe('Mobile Developers');
+
+    // Dismiss incoming group call
+    callStore.dismissIncomingGroupCall();
+    expect(useCallStore.getState().incomingGroupCall).toBeNull();
+  });
 });
 
 

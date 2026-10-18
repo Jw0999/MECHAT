@@ -12,7 +12,7 @@ import { CallOverlayModal } from '@/features/calling/CallOverlayModal';
 import { GroupCallModal } from '@/features/calling/GroupCallModal';
 import { useChatStore } from '@/stores/chatStore';
 import { useCallStore } from '@/stores/callStore';
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, Users, X } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
   const [currentTab, setCurrentTab] = useState<NavTab>('chat');
@@ -23,6 +23,9 @@ export const AppLayout: React.FC = () => {
   const stopGlobalMessageSubscription = useChatStore((s) => s.stopGlobalMessageSubscription);
   const initCallSignaling = useCallStore((s) => s.initCallSignaling);
   const stopCallSignaling = useCallStore((s) => s.stopCallSignaling);
+  const incomingGroupCall = useCallStore((s) => s.incomingGroupCall);
+  const initiateGroupCall = useCallStore((s) => s.initiateGroupCall);
+  const dismissIncomingGroupCall = useCallStore((s) => s.dismissIncomingGroupCall);
 
   useEffect(() => {
     loadConversations();
@@ -137,6 +140,48 @@ export const AppLayout: React.FC = () => {
       {/* Mobile Bottom Navigation (Hidden when viewing a specific chat on mobile) */}
       {!activeConversationId && (
         <BottomNav currentTab={currentTab} onSelectTab={handleSelectTab} />
+      )}
+
+      {/* Incoming Group Call Floating Alert Banner */}
+      {incomingGroupCall && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md bg-[#151A1C]/95 backdrop-blur-xl border border-brand/50 shadow-2xl rounded-2xl p-3 flex items-center justify-between animate-fade-in text-[#F5F7F7]">
+          <div className="flex items-center gap-3 min-w-0 pr-2">
+            <div className="w-10 h-10 rounded-xl bg-brand/20 text-brand flex items-center justify-center shrink-0">
+              <Users size={20} />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-xs font-bold text-white truncate">
+                {incomingGroupCall.caller.display_name}
+              </h4>
+              <p className="text-[11px] text-[#9BA5A8] truncate">
+                Group {incomingGroupCall.callType === 'video' ? 'Video' : 'Voice'} Call • {incomingGroupCall.groupTitle}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                initiateGroupCall(
+                  incomingGroupCall.groupId,
+                  incomingGroupCall.groupTitle,
+                  incomingGroupCall.callType,
+                  incomingGroupCall.members
+                );
+                dismissIncomingGroupCall();
+              }}
+              className="px-3.5 py-1.5 rounded-full bg-brand hover:bg-brand-hover text-[#0B0F10] text-xs font-bold shadow-md active:scale-95 transition"
+            >
+              Join
+            </button>
+            <button
+              onClick={dismissIncomingGroupCall}
+              className="p-1.5 rounded-full text-[#9BA5A8] hover:text-white transition"
+              title="Dismiss"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Fullscreen Call Overlay for Audio & Video calls */}

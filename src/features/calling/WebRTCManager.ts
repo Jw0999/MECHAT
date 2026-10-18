@@ -226,6 +226,14 @@ export class WebRTCManager {
   }
 
   public simulateRemoteStream(remoteUser?: Profile | null): MediaStream {
+    if (typeof document === 'undefined') {
+      this.remoteStream = typeof MediaStream !== 'undefined' ? new MediaStream() : (null as any);
+      if (this.callbacks.onRemoteStream && this.remoteStream) {
+        this.callbacks.onRemoteStream(this.remoteStream);
+      }
+      return this.remoteStream || ({} as any);
+    }
+
     try {
       const canvas = document.createElement('canvas');
       canvas.width = 640;

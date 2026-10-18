@@ -32,6 +32,8 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
   const initiateCall = useCallStore((s) => s.initiateCall);
   const initiateGroupCall = useCallStore((s) => s.initiateGroupCall);
   const activeGroupCall = useCallStore((s) => s.activeGroupCall);
+  const incomingGroupCall = useCallStore((s) => s.incomingGroupCall);
+  const dismissIncomingGroupCall = useCallStore((s) => s.dismissIncomingGroupCall);
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [isGroupDetailsOpen, setIsGroupDetailsOpen] = useState(false);
@@ -185,25 +187,56 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
         </div>
       </header>
 
-      {/* Active Group Call Banner */}
-      {isGroup && activeGroupCall && activeGroupCall.groupId === conversationId && (
-        <div className="bg-brand/15 border-b border-brand/30 px-3.5 py-2 flex items-center justify-between z-10 animate-fade-in shrink-0">
-          <div className="flex items-center gap-2.5 min-w-0 pr-2">
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand" />
-            </span>
-            <p className="text-xs font-semibold text-brand truncate">
-              Group {activeGroupCall.callType === 'video' ? 'Video' : 'Voice'} Call active ({activeGroupCall.participants.length} connected)
-            </p>
+      {/* Active or Incoming Group Call Banner */}
+      {isGroup && (
+        activeGroupCall && activeGroupCall.groupId === conversationId ? (
+          <div className="bg-brand/15 border-b border-brand/30 px-3.5 py-2 flex items-center justify-between z-10 animate-fade-in shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0 pr-2">
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand" />
+              </span>
+              <p className="text-xs font-semibold text-brand truncate">
+                Group {activeGroupCall.callType === 'video' ? 'Video' : 'Voice'} Call active ({activeGroupCall.participants.length} connected)
+              </p>
+            </div>
+            <button
+              onClick={() => handleStartCall(activeGroupCall.callType)}
+              className="px-3 py-1 rounded-full bg-brand text-[#0B0F10] text-xs font-bold shadow-md hover:bg-brand/90 active:scale-95 transition shrink-0"
+            >
+              Open Call
+            </button>
           </div>
-          <button
-            onClick={() => handleStartCall(activeGroupCall.callType)}
-            className="px-3 py-1 rounded-full bg-brand text-[#0B0F10] text-xs font-bold shadow-md hover:bg-brand/90 active:scale-95 transition shrink-0"
-          >
-            Open Call
-          </button>
-        </div>
+        ) : incomingGroupCall && incomingGroupCall.groupId === conversationId ? (
+          <div className="bg-brand/20 border-b border-brand/40 px-3.5 py-2 flex items-center justify-between z-10 animate-fade-in shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0 pr-2">
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand" />
+              </span>
+              <p className="text-xs font-semibold text-brand truncate">
+                {incomingGroupCall.caller.display_name} started a Group {incomingGroupCall.callType === 'video' ? 'Video' : 'Voice'} Call
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  initiateGroupCall(incomingGroupCall.groupId, incomingGroupCall.groupTitle, incomingGroupCall.callType, incomingGroupCall.members);
+                  dismissIncomingGroupCall();
+                }}
+                className="px-3 py-1 rounded-full bg-brand text-[#0B0F10] text-xs font-bold shadow-md hover:bg-brand/90 active:scale-95 transition"
+              >
+                Join Call
+              </button>
+              <button
+                onClick={dismissIncomingGroupCall}
+                className="text-[#9BA5A8] hover:text-white text-xs px-2 py-1"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        ) : null
       )}
 
       {/* Message History Stream */}

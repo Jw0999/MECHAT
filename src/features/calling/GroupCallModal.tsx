@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { PhoneOff, Mic, MicOff, Video, VideoOff, RotateCw, Users } from 'lucide-react';
 import { useCallStore, type GroupParticipant } from '@/stores/callStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -11,6 +11,19 @@ const ParticipantTile: React.FC<{
   isVideoCall: boolean;
 }> = ({ participant, isSelf, isVideoCall }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const setVideoRef = useCallback(
+    (el: HTMLVideoElement | null) => {
+      videoRef.current = el;
+      if (el && participant.stream) {
+        if (el.srcObject !== participant.stream) {
+          el.srcObject = participant.stream;
+        }
+        el.play().catch(() => {});
+      }
+    },
+    [participant.stream]
+  );
 
   useEffect(() => {
     if (videoRef.current && participant.stream) {
@@ -27,7 +40,7 @@ const ParticipantTile: React.FC<{
     <div className="relative w-full h-full min-h-[140px] rounded-3xl overflow-hidden bg-[#151A1C] border border-[#252C2E] flex items-center justify-center shadow-lg group">
       {hasVideo ? (
         <video
-          ref={videoRef}
+          ref={setVideoRef}
           autoPlay
           playsInline
           muted={isSelf}

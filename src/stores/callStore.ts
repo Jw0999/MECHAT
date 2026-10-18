@@ -47,6 +47,13 @@ interface CallState {
   callHistory: CallLog[];
   activeCall: ActiveCall | null;
   activeGroupCall: ActiveGroupCall | null;
+  incomingGroupCall: {
+    groupId: string;
+    groupTitle: string;
+    callType: CallType;
+    caller: Profile;
+    members?: Profile[];
+  } | null;
   timerInterval: any | null;
   groupTimerInterval: any | null;
   webrtcManager: WebRTCManager | null;
@@ -70,6 +77,7 @@ interface CallState {
   // Group Calling
   initiateGroupCall: (groupId: string, groupTitle: string, callType: CallType, members?: Profile[]) => Promise<void>;
   leaveGroupCall: () => void;
+  dismissIncomingGroupCall: () => void;
   toggleGroupMute: () => void;
   toggleGroupVideo: () => void;
   flipGroupCamera: () => Promise<void>;
@@ -158,6 +166,7 @@ export const useCallStore = create<CallState>((set, get) => ({
   callHistory: isSupabaseConfigured() ? [] : INITIAL_CALL_HISTORY,
   activeCall: null,
   activeGroupCall: null,
+  incomingGroupCall: null,
   timerInterval: null,
   groupTimerInterval: null,
   webrtcManager: null,
@@ -165,6 +174,7 @@ export const useCallStore = create<CallState>((set, get) => ({
   signalingChannel: null,
   sessionChannel: null,
   groupCallChannel: null,
+  dismissIncomingGroupCall: () => set({ incomingGroupCall: null }),
 
   loadCallHistory: async () => {
     const { isDemoMode, user } = useAuthStore.getState();
@@ -234,10 +244,87 @@ export const useCallStore = create<CallState>((set, get) => ({
           },
         });
       })
+      .on('broadcast', { event: 'call:accepted' }, async (payload) => {
+        const { callId, sdpAnswer } = payload.payload || {};
+        const currentActive = get().activeCall;
+        if (!currentActive || (callId && currentActive.callId !== callId)) return;
+
+        // Instant caller transition to connected (0ms delay)
+        set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, status: 'connected' } } : state));
+
+        if (sdpAnswer && get().webrtcManager) {
+          try {
+            await get().webrtcManager?.setRemoteDescription(sdpAnswer);
+          } catch (e) {
+            console.warn('Set remote description error:', e);
+          }
+        }
+
+        if (!get().timerInterval) {
+          const timer = setInterval(() => {
+            set((state) => {
+              if (!state.activeCall || state.activeCall.status !== 'connected') return state;
+              return { activeCall: { ...state.activeCall, duration: state.activeCall.duration + 1 } };
+            });
+          }, 1000);
+          set({ timerInterval: timer });
+        }
+      })
+      .on('broadcast', { event: 'call:declined' }, (payload) => {
+        const { callId, reason } = payload.payload || {};
+        const currentActive = get().activeCall;
+        if (currentActive && (!callId || currentActive.callId === callId)) {
+          toast.error(reason === 'busy' ? 'User is busy on another call' : 'Call declined');
+          get().endCall();
+        }
+      })
+      .on('broadcast', { event: 'call:ice-candidate' }, async (payload) => {
+        const { callId, candidate } = payload.payload || {};
+        const currentActive = get().activeCall;
+        if (currentActive && (!callId || currentActive.callId === callId) && candidate && get().webrtcManager) {
+          try {
+            await get().webrtcManager?.addIceCandidate(candidate);
+          } catch (e) {
+            console.warn('Add ICE candidate error:', e);
+          }
+        }
+      })
       .on('broadcast', { event: 'call:ended' }, (payload) => {
         const { callId } = payload.payload || {};
         if (get().activeCall?.callId === callId) {
           get().endCall();
+        }
+      })
+      .on('broadcast', { event: 'call:group-invite' }, (payload) => {
+        const { groupId, groupTitle, callType, caller, members } = payload.payload || {};
+        if (!groupId || !caller || caller.id === user.id) return;
+        if (get().activeCall || get().activeGroupCall) return;
+
+        set({
+          incomingGroupCall: {
+            groupId,
+            groupTitle: groupTitle || 'Group Call',
+            callType: callType || 'video',
+            caller,
+            members,
+          },
+        });
+
+        toast.info(`${caller.display_name || 'Someone'} started a Group ${callType === 'video' ? 'Video' : 'Voice'} Call`, {
+          duration: 12000,
+          action: {
+            label: 'Join Now',
+            onClick: () => {
+              get().initiateGroupCall(groupId, groupTitle || 'Group Call', callType || 'video', members);
+              set({ incomingGroupCall: null });
+            },
+          },
+        });
+      })
+      .on('broadcast', { event: 'call:group-ended' }, (payload) => {
+        const { groupId } = payload.payload || {};
+        if (get().incomingGroupCall?.groupId === groupId) {
+          set({ incomingGroupCall: null });
         }
       })
       .subscribe();
@@ -273,12 +360,27 @@ export const useCallStore = create<CallState>((set, get) => ({
         set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, remoteStream: stream } } : state));
       },
       onIceCandidate: (candidate) => {
-        if (!isDemo && sessionChan) {
-          sessionChan.send({
-            type: 'broadcast',
-            event: 'call:ice-candidate',
-            payload: { candidate },
-          });
+        if (!isDemo) {
+          if (sessionChan) {
+            sessionChan.send({
+              type: 'broadcast',
+              event: 'call:ice-candidate',
+              payload: { callId, candidate },
+            });
+          }
+          if (remoteUser.id) {
+            const userChan = supabase.channel(`user-calls:${remoteUser.id}`);
+            userChan.subscribe((st) => {
+              if (st === 'SUBSCRIBED') {
+                userChan.send({
+                  type: 'broadcast',
+                  event: 'call:ice-candidate',
+                  payload: { callId, candidate },
+                });
+                setTimeout(() => supabase.removeChannel(userChan), 2000);
+              }
+            });
+          }
         }
       },
       onConnectionStateChange: (pcState) => {
@@ -290,6 +392,7 @@ export const useCallStore = create<CallState>((set, get) => ({
       },
     });
 
+    // 0ms instant UI feedback: show outgoing calling screen immediately
     set({
       webrtcManager: manager,
       activeCall: {
@@ -308,31 +411,38 @@ export const useCallStore = create<CallState>((set, get) => ({
     });
 
     try {
-      await manager.startLocalMedia(callType === 'video');
-      manager.initializePeerConnection();
+      const mediaPromise = manager.startLocalMedia(callType === 'video');
 
       if (!isDemo && isSupabaseConfigured() && currentUser) {
+        await mediaPromise;
+        manager.initializePeerConnection();
+
         // Generate WebRTC SDP offer
         const offer = await manager.createOffer();
 
-        // Subscribe to temporary session channel
+        // 1. Subscribe to temporary session channel
         sessionChan = supabase.channel(`call-session:${callId}`);
         sessionChan
           .on('broadcast', { event: 'call:accepted' }, async (payload: any) => {
             const { sdpAnswer } = payload.payload || {};
-            if (sdpAnswer) {
-              await manager.setRemoteDescription(sdpAnswer);
-              set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, status: 'connected' } } : state));
+            set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, status: 'connected' } } : state));
 
-              if (!get().timerInterval) {
-                const timer = setInterval(() => {
-                  set((state) => {
-                    if (!state.activeCall || state.activeCall.status !== 'connected') return state;
-                    return { activeCall: { ...state.activeCall, duration: state.activeCall.duration + 1 } };
-                  });
-                }, 1000);
-                set({ timerInterval: timer });
+            if (sdpAnswer) {
+              try {
+                await manager.setRemoteDescription(sdpAnswer);
+              } catch (e) {
+                console.warn('Set remote description error:', e);
               }
+            }
+
+            if (!get().timerInterval) {
+              const timer = setInterval(() => {
+                set((state) => {
+                  if (!state.activeCall || state.activeCall.status !== 'connected') return state;
+                  return { activeCall: { ...state.activeCall, duration: state.activeCall.duration + 1 } };
+                });
+              }, 1000);
+              set({ timerInterval: timer });
             }
           })
           .on('broadcast', { event: 'call:declined' }, (payload: any) => {
@@ -350,37 +460,63 @@ export const useCallStore = create<CallState>((set, get) => ({
             toast.info('Call ended');
             get().endCall();
           })
-          .subscribe((status: string) => {
-            if (status === 'SUBSCRIBED') {
-              // Send invitation to remote user's personal channel
-              const inviteChan = supabase.channel(`user-calls:${remoteUser.id}`);
-              inviteChan.subscribe((invStatus) => {
-                if (invStatus === 'SUBSCRIBED') {
-                  inviteChan.send({
-                    type: 'broadcast',
-                    event: 'call:invite',
-                    payload: {
-                      callId,
-                      caller: currentProfile || {
-                        id: currentUser.id,
-                        display_name: 'MeChat User',
-                        username: 'user',
-                        avatar_url: '',
-                      },
-                      callType,
-                      conversationId,
-                      sdpOffer: offer,
-                    },
-                  });
-                  setTimeout(() => supabase.removeChannel(inviteChan), 4000);
-                }
+          .subscribe();
+
+        set({ sessionChannel: sessionChan });
+
+        // 2. CONCURRENTLY dispatch invitation directly to remote user's personal channel (NO sequential waiting!)
+        const inviteChan = supabase.channel(`user-calls:${remoteUser.id}`);
+        inviteChan.subscribe((invStatus) => {
+          if (invStatus === 'SUBSCRIBED') {
+            inviteChan.send({
+              type: 'broadcast',
+              event: 'call:invite',
+              payload: {
+                callId,
+                caller: currentProfile || {
+                  id: currentUser.id,
+                  display_name: 'MeChat User',
+                  username: 'user',
+                  avatar_url: '',
+                },
+                callType,
+                conversationId,
+                sdpOffer: offer,
+              },
+            });
+            setTimeout(() => supabase.removeChannel(inviteChan), 4000);
+          }
+        });
+
+        // 3. Concurrently dispatch on active conversation channel if provided
+        if (conversationId) {
+          const convChan = supabase.channel(`conversation:${conversationId}`);
+          convChan.subscribe((convStatus) => {
+            if (convStatus === 'SUBSCRIBED') {
+              convChan.send({
+                type: 'broadcast',
+                event: 'call:invite',
+                payload: {
+                  callId,
+                  caller: currentProfile || {
+                    id: currentUser.id,
+                    display_name: 'MeChat User',
+                    username: 'user',
+                    avatar_url: '',
+                  },
+                  callType,
+                  conversationId,
+                  sdpOffer: offer,
+                },
               });
             }
           });
-
-        set({ sessionChannel: sessionChan });
+        }
       } else {
         // Simulated responsive pickup for Demo Mode / demo users
+        await mediaPromise;
+        manager.initializePeerConnection();
+
         setTimeout(() => {
           if (get().activeCall?.status === 'calling') {
             if (callType === 'video' && !manager.hasRemoteTracks()) {
@@ -398,7 +534,7 @@ export const useCallStore = create<CallState>((set, get) => ({
 
             set({ timerInterval: timer });
           }
-        }, 2500);
+        }, 450); // Snappy, instant feel instead of slow delay
       }
     } catch (err: any) {
       if (!isDemo && typeof window !== 'undefined') {
@@ -410,6 +546,7 @@ export const useCallStore = create<CallState>((set, get) => ({
 
   simulateIncomingCall: (fromUser: Profile, callType: CallType) => {
     get().endCall();
+    const callId = `call-sim-${Date.now()}`;
     set({
       activeCall: {
         status: 'ringing',
@@ -421,6 +558,7 @@ export const useCallStore = create<CallState>((set, get) => ({
         isVideoOff: false,
         localStream: null,
         remoteStream: null,
+        callId,
       },
     });
   },
@@ -429,6 +567,21 @@ export const useCallStore = create<CallState>((set, get) => ({
     const { activeCall } = get();
     if (!activeCall || !activeCall.remoteUser) return;
     const isDemo = useAuthStore.getState().isDemoMode || !isSupabaseConfigured() || !activeCall.callId;
+
+    // 1. INSTANTLY transition UI to connected state (0ms delay)
+    // Stops incoming ringtone chime immediately and reveals call controls
+    set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, status: 'connected' } } : state));
+
+    // 2. Start duration timer immediately
+    if (!get().timerInterval) {
+      const timer = setInterval(() => {
+        set((state) => {
+          if (!state.activeCall || state.activeCall.status !== 'connected') return state;
+          return { activeCall: { ...state.activeCall, duration: state.activeCall.duration + 1 } };
+        });
+      }, 1000);
+      set({ timerInterval: timer });
+    }
 
     let sessionChan: any = null;
 
@@ -440,12 +593,27 @@ export const useCallStore = create<CallState>((set, get) => ({
         set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, remoteStream: stream } } : state));
       },
       onIceCandidate: (candidate) => {
-        if (!isDemo && sessionChan) {
-          sessionChan.send({
-            type: 'broadcast',
-            event: 'call:ice-candidate',
-            payload: { candidate },
-          });
+        if (!isDemo) {
+          if (sessionChan) {
+            sessionChan.send({
+              type: 'broadcast',
+              event: 'call:ice-candidate',
+              payload: { callId: activeCall.callId, candidate },
+            });
+          }
+          if (activeCall.remoteUser?.id) {
+            const userChan = supabase.channel(`user-calls:${activeCall.remoteUser.id}`);
+            userChan.subscribe((st) => {
+              if (st === 'SUBSCRIBED') {
+                userChan.send({
+                  type: 'broadcast',
+                  event: 'call:ice-candidate',
+                  payload: { callId: activeCall.callId, candidate },
+                });
+                setTimeout(() => supabase.removeChannel(userChan), 2000);
+              }
+            });
+          }
         }
       },
       onConnectionStateChange: (pcState) => {
@@ -459,57 +627,83 @@ export const useCallStore = create<CallState>((set, get) => ({
 
     set({ webrtcManager: manager });
 
+    // 3. Dispatch call:accepted signal to caller IMMEDIATELY on their permanent channel (0ms caller pickup)
+    if (!isDemo && activeCall.callId && activeCall.remoteUser?.id) {
+      const callerDirectChan = supabase.channel(`user-calls:${activeCall.remoteUser.id}`);
+      callerDirectChan.subscribe((st) => {
+        if (st === 'SUBSCRIBED') {
+          callerDirectChan.send({
+            type: 'broadcast',
+            event: 'call:accepted',
+            payload: { callId: activeCall.callId },
+          });
+          setTimeout(() => supabase.removeChannel(callerDirectChan), 3000);
+        }
+      });
+
+      sessionChan = supabase.channel(`call-session:${activeCall.callId}`);
+      sessionChan
+        .on('broadcast', { event: 'call:ice-candidate' }, async (payload: any) => {
+          const { candidate } = payload.payload || {};
+          if (candidate) {
+            await manager.addIceCandidate(candidate);
+          }
+        })
+        .on('broadcast', { event: 'call:ended' }, () => {
+          toast.info('Call ended');
+          get().endCall();
+        })
+        .subscribe(async (status: string) => {
+          if (status === 'SUBSCRIBED') {
+            sessionChan.send({
+              type: 'broadcast',
+              event: 'call:accepted',
+              payload: { callId: activeCall.callId },
+            });
+          }
+        });
+
+      set({ sessionChannel: sessionChan });
+    }
+
+    // 4. Start local media and complete WebRTC negotiation in parallel
     try {
       await manager.startLocalMedia(activeCall.callType === 'video');
       manager.initializePeerConnection();
 
-      if (!isDemo && activeCall.callId) {
-        sessionChan = supabase.channel(`call-session:${activeCall.callId}`);
-        sessionChan
-          .on('broadcast', { event: 'call:ice-candidate' }, async (payload: any) => {
-            const { candidate } = payload.payload || {};
-            if (candidate) {
-              await manager.addIceCandidate(candidate);
-            }
-          })
-          .on('broadcast', { event: 'call:ended' }, () => {
-            toast.info('Call ended');
-            get().endCall();
-          })
-          .subscribe(async (status: string) => {
-            if (status === 'SUBSCRIBED') {
-              if (activeCall.sdpOffer) {
-                await manager.setRemoteDescription(activeCall.sdpOffer);
-                const answer = await manager.createAnswer();
-                sessionChan.send({
-                  type: 'broadcast',
-                  event: 'call:accepted',
-                  payload: { sdpAnswer: answer },
-                });
-              }
-            }
-          });
-
-        set({ sessionChannel: sessionChan });
-      } else {
+      if (isDemo) {
         if (activeCall.callType === 'video' && !manager.hasRemoteTracks()) {
           manager.simulateRemoteStream(activeCall.remoteUser);
         }
+      } else if (activeCall.sdpOffer) {
+        await manager.setRemoteDescription(activeCall.sdpOffer);
+        const answer = await manager.createAnswer();
+        if (sessionChan) {
+          sessionChan.send({
+            type: 'broadcast',
+            event: 'call:accepted',
+            payload: { callId: activeCall.callId, sdpAnswer: answer },
+          });
+        }
+        if (activeCall.remoteUser?.id) {
+          const directChan = supabase.channel(`user-calls:${activeCall.remoteUser.id}`);
+          directChan.subscribe((st) => {
+            if (st === 'SUBSCRIBED') {
+              directChan.send({
+                type: 'broadcast',
+                event: 'call:accepted',
+                payload: { callId: activeCall.callId, sdpAnswer: answer },
+              });
+              setTimeout(() => supabase.removeChannel(directChan), 2000);
+            }
+          });
+        }
       }
-
-      set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, status: 'connected' } } : state));
-
-      const timer = setInterval(() => {
-        set((state) => {
-          if (!state.activeCall || state.activeCall.status !== 'connected') return state;
-          return { activeCall: { ...state.activeCall, duration: state.activeCall.duration + 1 } };
-        });
-      }, 1000);
-
-      set({ timerInterval: timer });
     } catch (err) {
-      toast.error('Failed to connect call');
-      get().endCall();
+      if (!isDemo && typeof window !== 'undefined') {
+        toast.error('Failed to access media devices');
+        get().endCall();
+      }
     }
   },
 
@@ -735,8 +929,50 @@ export const useCallStore = create<CallState>((set, get) => ({
 
       set({ groupTimerInterval: timer });
 
-      // If Supabase Realtime is configured, track presence in group call channel
+      // If Supabase Realtime is configured, broadcast invites and track presence in group call channel
       if (!isDemo && currentUser) {
+        // Concurrently dispatch group call invite to all members' direct channels
+        (members || []).forEach((member) => {
+          if (member.id !== currentUser.id) {
+            const memChan = supabase.channel(`user-calls:${member.id}`);
+            memChan.subscribe((st) => {
+              if (st === 'SUBSCRIBED') {
+                memChan.send({
+                  type: 'broadcast',
+                  event: 'call:group-invite',
+                  payload: {
+                    groupId,
+                    groupTitle,
+                    callType,
+                    caller: currentProfile || { id: currentUser.id, display_name: 'MeChat User' },
+                    members,
+                  },
+                });
+                setTimeout(() => supabase.removeChannel(memChan), 3000);
+              }
+            });
+          }
+        });
+
+        // Also broadcast on the group's conversation channel
+        const convChan = supabase.channel(`conversation:${groupId}`);
+        convChan.subscribe((st) => {
+          if (st === 'SUBSCRIBED') {
+            convChan.send({
+              type: 'broadcast',
+              event: 'call:group-invite',
+              payload: {
+                groupId,
+                groupTitle,
+                callType,
+                caller: currentProfile || { id: currentUser.id, display_name: 'MeChat User' },
+                members,
+              },
+            });
+            setTimeout(() => supabase.removeChannel(convChan), 3000);
+          }
+        });
+
         const groupChannel = supabase.channel(`group-call:${groupId}`, {
           config: { presence: { key: currentUser.id } },
         });
@@ -787,7 +1023,7 @@ export const useCallStore = create<CallState>((set, get) => ({
 
         set({ groupCallChannel: groupChannel });
       } else {
-        // Demo Mode / simulated peers joining the group call
+        // Demo Mode / simulated peers joining the group call rapidly with zero delay
         const candidateMembers = (members || []).filter((m) => m.id !== currentUser?.id).slice(0, 3);
 
         const demoPeers =
@@ -822,10 +1058,25 @@ export const useCallStore = create<CallState>((set, get) => ({
                   created_at: '',
                   updated_at: '',
                 },
+                {
+                  id: 'demo-user-satria',
+                  display_name: 'Satria herman',
+                  username: 'satriah',
+                  avatar_url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+                  bio: '',
+                  online_status: 'online' as const,
+                  last_seen: '',
+                  privacy_online: true,
+                  privacy_last_seen: true,
+                  privacy_read_receipts: true,
+                  created_at: '',
+                  updated_at: '',
+                },
               ];
 
-        // Staggered joining for natural feel
+        // Snappy zero-delay joining: Peer 1 at 200ms, Peer 2 at 450ms, Peer 3 at 700ms
         demoPeers.forEach((peer, idx) => {
+          const joinDelay = 200 + idx * 250;
           setTimeout(() => {
             if (get().activeGroupCall?.status === 'connected') {
               const peerStream =
@@ -854,7 +1105,7 @@ export const useCallStore = create<CallState>((set, get) => ({
                 };
               });
             }
-          }, (idx + 1) * 1200);
+          }, joinDelay);
         });
       }
     } catch (err) {
@@ -868,7 +1119,12 @@ export const useCallStore = create<CallState>((set, get) => ({
   leaveGroupCall: () => {
     const { activeGroupCall, groupTimerInterval, groupWebrtcManager, groupCallChannel } = get();
 
-    if (groupCallChannel) {
+    if (groupCallChannel && activeGroupCall) {
+      groupCallChannel.send({
+        type: 'broadcast',
+        event: 'call:group-ended',
+        payload: { groupId: activeGroupCall.groupId },
+      });
       supabase.removeChannel(groupCallChannel);
       set({ groupCallChannel: null });
     }
@@ -900,6 +1156,7 @@ export const useCallStore = create<CallState>((set, get) => ({
 
     set({
       activeGroupCall: null,
+      incomingGroupCall: null,
       groupTimerInterval: null,
       groupWebrtcManager: null,
     });

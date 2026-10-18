@@ -97,7 +97,7 @@ export const CallOverlayModal: React.FC = () => {
       activeCall.status === 'connected' &&
       activeCall.remoteStream &&
       activeCall.remoteStream.getVideoTracks().length > 0 &&
-      activeCall.remoteStream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live')
+      activeCall.remoteStream.getVideoTracks().some((t) => t.enabled)
   );
 
   const isVideoCallActive = isVideo && (activeCall.status === 'connected' || activeCall.status === 'calling');

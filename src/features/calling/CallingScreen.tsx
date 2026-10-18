@@ -7,6 +7,7 @@ import { NewChatModal } from '@/features/chat/NewChatModal';
 export const CallingScreen: React.FC = () => {
   const callHistory = useCallStore((s) => s.callHistory);
   const initiateCall = useCallStore((s) => s.initiateCall);
+  const initiateGroupCall = useCallStore((s) => s.initiateGroupCall);
   const simulateIncomingCall = useCallStore((s) => s.simulateIncomingCall);
 
   const [filter, setFilter] = useState<'all' | 'missed'>('all');
@@ -26,23 +27,69 @@ export const CallingScreen: React.FC = () => {
           <p className="text-xs text-[#9BA5A8]">Recent audio & video calls</p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Quick simulation helper for testing calling screen */}
+        <div className="flex items-center gap-1.5">
+          {/* Quick zero-delay call test helpers */}
           <button
             onClick={() => {
-              if (callHistory[0]?.caller) {
-                simulateIncomingCall(callHistory[0].caller, 'audio');
-              }
+              const contact = callHistory[0]?.caller || {
+                id: 'demo-user-2',
+                username: 'ninaflora',
+                display_name: 'Nina Flora',
+                avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+                bio: '',
+                online_status: 'online',
+                last_seen: '',
+                privacy_online: true,
+                privacy_last_seen: true,
+                privacy_read_receipts: true,
+                created_at: '',
+                updated_at: '',
+              };
+              simulateIncomingCall(contact, 'video');
             }}
-            className="text-[11px] font-semibold bg-brand/15 text-brand px-2.5 py-1 rounded-full hover:bg-brand/25 transition hidden sm:inline-block"
-            title="Simulate incoming call to test UI"
+            className="text-[11px] font-semibold bg-brand/15 text-brand px-2.5 py-1 rounded-full hover:bg-brand/25 transition hidden sm:inline-flex items-center gap-1"
+            title="Test zero-delay incoming video call"
           >
-            Simulate Call
+            <Video size={13} />
+            <span>Test Video</span>
+          </button>
+          <button
+            onClick={() => {
+              const contact = callHistory[0]?.caller || {
+                id: 'demo-user-2',
+                username: 'ninaflora',
+                display_name: 'Nina Flora',
+                avatar_url: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+                bio: '',
+                online_status: 'online',
+                last_seen: '',
+                privacy_online: true,
+                privacy_last_seen: true,
+                privacy_read_receipts: true,
+                created_at: '',
+                updated_at: '',
+              };
+              simulateIncomingCall(contact, 'audio');
+            }}
+            className="text-[11px] font-semibold bg-brand/15 text-brand px-2.5 py-1 rounded-full hover:bg-brand/25 transition hidden sm:inline-flex items-center gap-1"
+            title="Test zero-delay incoming voice call"
+          >
+            <Phone size={13} />
+            <span>Test Voice</span>
+          </button>
+          <button
+            onClick={() => {
+              initiateGroupCall('group-1', 'Product Design Team', 'video');
+            }}
+            className="text-[11px] font-semibold bg-[#252C2E] text-brand px-2.5 py-1 rounded-full hover:bg-[#323B3E] transition hidden sm:inline-flex items-center gap-1 border border-brand/20"
+            title="Test zero-delay group video call"
+          >
+            <span>Test Group</span>
           </button>
 
           <button
             onClick={() => setIsNewCallOpen(true)}
-            className="w-10 h-10 rounded-full bg-brand hover:bg-brand-hover text-[#0B0F10] flex items-center justify-center font-bold shadow-lg shadow-brand/20 active:scale-95 transition"
+            className="w-10 h-10 rounded-full bg-brand hover:bg-brand-hover text-[#0B0F10] flex items-center justify-center font-bold shadow-lg shadow-brand/20 active:scale-95 transition ml-1"
             title="New Call"
           >
             <Plus size={22} strokeWidth={2.6} />
