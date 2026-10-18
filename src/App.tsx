@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { AuthScreen } from '@/features/auth/AuthScreen';
 import { AppLayout } from '@/features/shell/AppLayout';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import { MessageCircle } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -12,6 +12,14 @@ export const App: React.FC = () => {
   const initAuth = useAuthStore((s) => s.initAuth);
 
   useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.hash) {
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const errorDesc = hashParams.get('error_description');
+      if (errorDesc) {
+        toast.error(decodeURIComponent(errorDesc).replace(/\+/g, ' '));
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
     initAuth();
   }, [initAuth]);
 
