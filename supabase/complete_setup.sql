@@ -141,16 +141,24 @@ CREATE POLICY "Users can insert own settings"
     WITH CHECK (auth.uid() = user_id);
 
 -- Conversations: Users can see conversations they are members of
+-- Helper function with SECURITY DEFINER to bypass RLS recursion cleanly
+CREATE OR REPLACE FUNCTION public.is_conversation_member(conv_id UUID, u_id UUID DEFAULT auth.uid())
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1
+        FROM public.conversation_members
+        WHERE conversation_id = conv_id
+          AND user_id = u_id
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+
+-- Conversations: Users can see conversations they are members of
 CREATE POLICY "Users can view conversations they belong to"
     ON public.conversations FOR SELECT
     TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.conversation_members
-            WHERE conversation_members.conversation_id = conversations.id
-            AND conversation_members.user_id = auth.uid()
-        )
-    );
+    USING (public.is_conversation_member(id));
 
 CREATE POLICY "Users can create conversations"
     ON public.conversations FOR INSERT
@@ -160,25 +168,13 @@ CREATE POLICY "Users can create conversations"
 CREATE POLICY "Conversation admins or members can update conversation info"
     ON public.conversations FOR UPDATE
     TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.conversation_members
-            WHERE conversation_members.conversation_id = conversations.id
-            AND conversation_members.user_id = auth.uid()
-        )
-    );
+    USING (public.is_conversation_member(id));
 
 -- Conversation Members: Members can view member list of their conversations
 CREATE POLICY "Members can view membership of their conversations"
     ON public.conversation_members FOR SELECT
     TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.conversation_members AS cm
-            WHERE cm.conversation_id = conversation_members.conversation_id
-            AND cm.user_id = auth.uid()
-        )
-    );
+    USING (public.is_conversation_member(conversation_id));
 
 CREATE POLICY "Authenticated users can join or be added to conversations"
     ON public.conversation_members FOR INSERT
@@ -188,51 +184,25 @@ CREATE POLICY "Authenticated users can join or be added to conversations"
 CREATE POLICY "Users can update their own membership or admins can update members"
     ON public.conversation_members FOR UPDATE
     TO authenticated
-    USING (
-        user_id = auth.uid()
-        OR EXISTS (
-            SELECT 1 FROM public.conversation_members AS cm
-            WHERE cm.conversation_id = conversation_members.conversation_id
-            AND cm.user_id = auth.uid()
-            AND cm.role = 'admin'
-        )
-    );
+    USING (user_id = auth.uid() OR public.is_conversation_member(conversation_id));
 
 CREATE POLICY "Users can leave conversations or admins can remove members"
     ON public.conversation_members FOR DELETE
     TO authenticated
-    USING (
-        user_id = auth.uid()
-        OR EXISTS (
-            SELECT 1 FROM public.conversation_members AS cm
-            WHERE cm.conversation_id = conversation_members.conversation_id
-            AND cm.user_id = auth.uid()
-            AND cm.role = 'admin'
-        )
-    );
+    USING (user_id = auth.uid() OR public.is_conversation_member(conversation_id));
 
 -- Messages: Members can view and post messages in their conversations
 CREATE POLICY "Members can read messages in their conversations"
     ON public.messages FOR SELECT
     TO authenticated
-    USING (
-        EXISTS (
-            SELECT 1 FROM public.conversation_members
-            WHERE conversation_members.conversation_id = messages.conversation_id
-            AND conversation_members.user_id = auth.uid()
-        )
-    );
+    USING (public.is_conversation_member(conversation_id));
 
 CREATE POLICY "Members can insert messages into their conversations"
     ON public.messages FOR INSERT
     TO authenticated
     WITH CHECK (
         auth.uid() = sender_id
-        AND EXISTS (
-            SELECT 1 FROM public.conversation_members
-            WHERE conversation_members.conversation_id = messages.conversation_id
-            AND conversation_members.user_id = auth.uid()
-        )
+        AND public.is_conversation_member(conversation_id)
     );
 
 CREATE POLICY "Senders can soft-delete or edit own messages"

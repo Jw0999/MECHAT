@@ -855,7 +855,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             .select('user_id, profiles(*)')
             .eq('conversation_id', conv.id)
             .neq('user_id', currentUserId)
-            .single();
+            .maybeSingle();
 
           if (otherMember && otherMember.profiles) {
             otherUser = otherMember.profiles as unknown as Profile;
@@ -884,7 +884,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           .eq('conversation_id', conv.id)
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
 
         // Calculate unread count
         const lastRead = row.last_read_at || new Date(0).toISOString();
