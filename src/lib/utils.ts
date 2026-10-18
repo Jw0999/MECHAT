@@ -94,3 +94,54 @@ export function formatFileSize(bytes?: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
+
+export function isUrl(str?: string | null): boolean {
+  if (!str || typeof str !== 'string') return false;
+  const s = str.trim();
+  return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('blob:');
+}
+
+export function isMediaUrl(str?: string | null): boolean {
+  if (!str || !isUrl(str)) return false;
+  return (
+    str.includes('chat-attachments') ||
+    str.includes('avatars') ||
+    str.startsWith('blob:') ||
+    /\.(jpg|jpeg|png|gif|webp|svg|pdf|docx?|xlsx?)(\?.*)?$/i.test(str)
+  );
+}
+
+export function getMessagePreviewText(message?: {
+  content?: string;
+  message_type?: string;
+  metadata?: any;
+} | null): string {
+  if (!message) return 'No messages yet';
+  if (message.content === 'Typing...') return 'Typing...';
+
+  const type = message.message_type || 'text';
+  if (type === 'image' || isMediaUrl(message.content)) {
+    const caption = message.content && !isUrl(message.content) ? message.content.trim() : '';
+    return caption ? `Photo: ${caption}` : 'Photo';
+  }
+
+  if (type === 'audio') {
+    return 'Voice message';
+  }
+
+  if (type === 'file') {
+    const name = message.metadata?.file_name || 'Document';
+    return `Document: ${name}`;
+  }
+
+  if (type === 'call_log') {
+    return message.metadata?.call_type === 'video' ? 'Video call' : 'Audio call';
+  }
+
+  // If text message is just a raw URL or blob
+  if (isUrl(message.content)) {
+    return 'Photo';
+  }
+
+  return message.content || '';
+}

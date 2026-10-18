@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeAll } from 'bun:test';
-import { formatDuration, getInitials, formatMessageTime, formatFileSize } from '../src/lib/utils';
+import {
+  formatDuration,
+  getInitials,
+  formatMessageTime,
+  formatFileSize,
+  getMessagePreviewText,
+  isUrl,
+  isMediaUrl,
+} from '../src/lib/utils';
 import { useChatStore } from '../src/stores/chatStore';
 import { useAuthStore } from '../src/stores/authStore';
 import { WebRTCManager } from '../src/features/calling/WebRTCManager';
@@ -33,6 +41,53 @@ describe('Chat Utilities & Formats', () => {
     expect(formatFileSize(1024)).toBe('1.0 KB');
     expect(formatFileSize(1048576)).toBe('1.0 MB');
     expect(formatFileSize(2621440)).toBe('2.5 MB');
+  });
+
+  it('formats message previews cleanly without exposing raw URLs', () => {
+    // 1. Image message with no caption -> Photo
+    expect(getMessagePreviewText({ message_type: 'image', content: '' })).toBe('Photo');
+
+    // 2. Image message with caption -> Photo: caption
+    expect(
+      getMessagePreviewText({ message_type: 'image', content: 'Look at this sunset' })
+    ).toBe('Photo: Look at this sunset');
+
+    // 3. Image where content is a blob or URL (legacy) -> Photo (never raw URL)
+    expect(
+      getMessagePreviewText({
+        message_type: 'image',
+        content: 'blob:https://mechat-dgk.pages.dev/ea1-2b3',
+      })
+    ).toBe('Photo');
+    expect(
+      getMessagePreviewText({
+        message_type: 'text',
+        content: 'https://xyz.supabase.co/storage/v1/object/public/chat-attachments/photo.jpg',
+      })
+    ).toBe('Photo');
+
+    // 4. Voice message -> Voice message
+    expect(getMessagePreviewText({ message_type: 'audio', content: '' })).toBe('Voice message');
+
+    // 5. Document -> Document: filename
+    expect(
+      getMessagePreviewText({
+        message_type: 'file',
+        content: '',
+        metadata: { file_name: 'Quarterly_Report.pdf' },
+      })
+    ).toBe('Document: Quarterly_Report.pdf');
+
+    // 6. Regular text message
+    expect(getMessagePreviewText({ message_type: 'text', content: 'Hello there!' })).toBe(
+      'Hello there!'
+    );
+
+    // 7. URL detection
+    expect(isUrl('blob:https://test.com/abc')).toBe(true);
+    expect(isUrl('https://example.com/pic.png')).toBe(true);
+    expect(isUrl('Just a regular text message')).toBe(false);
+    expect(isMediaUrl('https://example.com/chat-attachments/image.jpg')).toBe(true);
   });
 });
 

@@ -56,6 +56,13 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
     ? 'Online'
     : formatLastSeen(conversation?.other_user?.last_seen);
 
+  // Ensure conversation messages are loaded and subscribed to live real-time stream on mount
+  useEffect(() => {
+    loadMessages(conversationId);
+    useChatStore.getState().subscribeToConversation(conversationId);
+    useChatStore.getState().markAsRead(conversationId);
+  }, [conversationId, loadMessages]);
+
   // Auto-scroll to bottom on new message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

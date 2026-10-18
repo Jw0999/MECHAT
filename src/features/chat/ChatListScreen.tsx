@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { MoreHorizontal, Search, Plus, Check, CheckCheck, RotateCw } from 'lucide-react';
+import { MoreHorizontal, Search, Plus, Check, CheckCheck, RotateCw, Camera, Mic, FileText, Phone } from 'lucide-react';
 import { useChatStore, type FilterTab } from '@/stores/chatStore';
-import { formatChatTimestamp, cn } from '@/lib/utils';
+import { formatChatTimestamp, getMessagePreviewText, isMediaUrl, cn } from '@/lib/utils';
 import { NewChatModal } from './NewChatModal';
 
 interface ChatListScreenProps {
@@ -222,13 +222,28 @@ export const ChatListScreen: React.FC<ChatListScreenProps> = ({
                     </h3>
                     <p
                       className={cn(
-                        'text-xs truncate mt-1',
+                        'text-xs truncate mt-1 flex items-center gap-1',
                         isTyping
                           ? 'text-brand font-semibold italic'
                           : 'text-[#9BA5A8]'
                       )}
                     >
-                      {lastMsg ? lastMsg.content : 'No messages yet'}
+                      {lastMsg ? (
+                        <>
+                          {lastMsg.message_type === 'image' || isMediaUrl(lastMsg.content) ? (
+                            <Camera size={13} className="text-brand shrink-0 inline mr-0.5" />
+                          ) : lastMsg.message_type === 'audio' ? (
+                            <Mic size={13} className="text-brand shrink-0 inline mr-0.5" />
+                          ) : lastMsg.message_type === 'file' ? (
+                            <FileText size={13} className="text-brand shrink-0 inline mr-0.5" />
+                          ) : lastMsg.message_type === 'call_log' ? (
+                            <Phone size={13} className="text-brand shrink-0 inline mr-0.5" />
+                          ) : null}
+                          <span className="truncate">{getMessagePreviewText(lastMsg)}</span>
+                        </>
+                      ) : (
+                        'No messages yet'
+                      )}
                     </p>
                   </div>
                 </div>

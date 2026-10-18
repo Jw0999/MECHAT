@@ -93,8 +93,9 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
         );
         toast.dismiss(toastId);
 
+        const caption = text.trim();
         onSendMessage(
-          url,
+          caption,
           pendingAttachment.type,
           {
             file_name: pendingAttachment.file.name,
@@ -103,11 +104,9 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
             file_url: url,
           }
         );
+        setText('');
         setPendingAttachment(null);
-        if (text.trim()) {
-          onSendMessage(text.trim(), 'text');
-          setText('');
-        }
+        if (onCancelReply) onCancelReply();
       } catch (err: any) {
         toast.error(err.message || 'Failed to upload attachment', { id: toastId });
       } finally {
@@ -200,7 +199,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       );
       toast.dismiss(toastId);
 
-      onSendMessage(url, 'audio', {
+      onSendMessage('', 'audio', {
         audio_duration: Math.max(duration, 1),
         file_url: url,
         file_name: fileName,

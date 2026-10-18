@@ -1102,7 +1102,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         };
       });
 
-      // Broadcast over the active conversation channel for instant 0ms latency delivery
+      // 1. Broadcast over the active conversation channel for instant 0ms latency delivery
       const activeChannel = get().realtimeChannel;
       if (activeChannel) {
         try {
@@ -1113,6 +1113,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
           });
         } catch {
           // Channel send error non-fatal
+        }
+      }
+
+      // 2. Also broadcast directly to 1-on-1 recipient's personal user channel for 0ms cross-device delivery
+      const targetConv = get().conversations.find((c) => c.id === conversationId);
+      if (targetConv && targetConv.other_user?.id && targetConv.type !== 'group') {
+        try {
+          const directUserChan = supabase.channel(`global-user-messages:${targetConv.other_user.id}`);
+          directUserChan.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              directUserChan.send({
+                type: 'broadcast',
+                event: 'direct_message',
+                payload: persistedMsg,
+              });
+              setTimeout(() => supabase.removeChannel(directUserChan), 2500);
+            }
+          });
+        } catch {
+          // Non-fatal
         }
       }
 
@@ -1637,30 +1657,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const newMsg = payload.new as Message;
           if (!newMsg || !newMsg.id) return;
 
-          // Fetch sender details using maybeSingle()
-          const { data: sender } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', newMsg.sender_id)
-            .maybeSingle();
+          // Resolve sender from in-memory cache instantly with zero network delay
+          const state = get();
+          let cachedSender = state.conversations
+            .flatMap((c) => (c.members ? c.members.map((m) => m.profile) : [c.other_user]))
+            .find((p) => p?.id === newMsg.sender_id);
+          if (!cachedSender && newMsg.sender_id === useAuthStore.getState().user?.id) {
+            cachedSender = useAuthStore.getState().profile || undefined;
+          }
 
-          const completeMsg = { ...newMsg, sender: sender || undefined };
+          const completeMsg: Message = { ...newMsg, sender: cachedSender || undefined };
 
-          set((state) => {
-            const list = state.messages[conversationId] || [];
-            // Check if already in list
-            if (list.some((m) => m.id === completeMsg.id)) return state;
+          // 1. Immediately insert message into active message stream
+          set((st) => {
+            const list = st.messages[conversationId] || [];
+            if (list.some((m) => m.id === completeMsg.id)) return st;
             return {
               messages: {
-                ...state.messages,
+                ...st.messages,
                 [conversationId]: [...list, completeMsg],
               },
             };
           });
 
-          // Update last message in conversations list
-          set((state) => ({
-            conversations: state.conversations.map((c) =>
+          // 2. Immediately update conversations list and bring to top
+          set((st) => {
+            const updated = st.conversations.map((c) =>
               c.id === conversationId
                 ? {
                     ...c,
@@ -1668,8 +1690,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     last_message_at: completeMsg.created_at,
                   }
                 : c
-            ),
-          }));
+            );
+            updated.sort(
+              (a, b) =>
+                new Date(b.last_message_at || b.created_at).getTime() -
+                new Date(a.last_message_at || a.created_at).getTime()
+            );
+            return { conversations: updated };
+          });
+
+          // 3. Asynchronously fetch full sender profile if not in cache
+          if (!cachedSender) {
+            supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', newMsg.sender_id)
+              .maybeSingle()
+              .then(({ data: fetchedSender }) => {
+                if (fetchedSender) {
+                  set((st) => ({
+                    messages: {
+                      ...st.messages,
+                      [conversationId]: (st.messages[conversationId] || []).map((m) =>
+                        m.id === newMsg.id ? { ...m, sender: fetchedSender } : m
+                      ),
+                    },
+                  }));
+                }
+              });
+          }
         }
       )
       .on('broadcast', { event: 'new_message' }, (event) => {
@@ -1752,24 +1801,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
           const currentUserId = useAuthStore.getState().user?.id;
           const isOwn = newMsg.sender_id === currentUserId;
 
-          // Fetch sender info
-          const { data: sender } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', newMsg.sender_id)
-            .maybeSingle();
+          // 1. Resolve sender instantly from in-memory cache with zero network wait
+          const state = get();
+          let cachedSender = state.conversations
+            .flatMap((c) => (c.members ? c.members.map((m) => m.profile) : [c.other_user]))
+            .find((p) => p?.id === newMsg.sender_id);
+          if (!cachedSender && isOwn) {
+            cachedSender = useAuthStore.getState().profile || undefined;
+          }
 
-          const completeMsg: Message = { ...newMsg, sender: sender || undefined };
+          const completeMsg: Message = { ...newMsg, sender: cachedSender || undefined };
           const activeId = get().activeConversationId;
 
-          // If the user currently has this exact conversation open
+          // 2. If viewing this conversation, insert immediately
           if (activeId === newMsg.conversation_id) {
-            set((state) => {
-              const list = state.messages[activeId] || [];
-              if (list.some((m) => m.id === completeMsg.id)) return state;
+            set((st) => {
+              const list = st.messages[activeId] || [];
+              if (list.some((m) => m.id === completeMsg.id)) return st;
               return {
                 messages: {
-                  ...state.messages,
+                  ...st.messages,
                   [activeId]: [...list, completeMsg],
                 },
               };
@@ -1779,13 +1830,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
               soundEffects.playMessageSound();
             }
           } else {
-            // Message is in a different conversation or user is on chat list
+            // Message in background: trigger push notification
             if (!isOwn) {
               const conv = get().conversations.find((c) => c.id === newMsg.conversation_id);
               const senderTitle =
                 conv?.type === 'group'
                   ? conv.title
-                  : sender?.display_name || 'New message';
+                  : cachedSender?.display_name || 'New message';
 
               showPushNotification(senderTitle || 'New message', {
                 body: newMsg.content || 'Sent an attachment',
@@ -1794,13 +1845,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }
           }
 
-          // Update conversations list (latest message, unread badge, position)
-          set((state) => {
+          // 3. Update conversations list immediately with latest message & sort to top
+          set((st) => {
             let found = false;
-            const updated = state.conversations.map((c) => {
+            const updated = st.conversations.map((c) => {
               if (c.id === newMsg.conversation_id) {
                 found = true;
-                const isActive = state.activeConversationId === c.id;
+                const isActive = st.activeConversationId === c.id;
                 return {
                   ...c,
                   last_message: completeMsg,
@@ -1812,12 +1863,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
             });
 
             if (!found) {
-              // Newly created conversation from another user: reload conversations
               get().loadConversations();
-              return state;
+              return st;
             }
 
-            // Sort with latest active conversation at top
             updated.sort(
               (a, b) =>
                 new Date(b.last_message_at || b.created_at).getTime() -
@@ -1826,8 +1875,77 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             return { conversations: updated };
           });
+
+          // 4. Background fetch profile only if not in cache
+          if (!cachedSender) {
+            supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', newMsg.sender_id)
+              .maybeSingle()
+              .then(({ data: fetchedSender }) => {
+                if (fetchedSender) {
+                  set((st) => ({
+                    messages: {
+                      ...st.messages,
+                      [newMsg.conversation_id]: (st.messages[newMsg.conversation_id] || []).map((m) =>
+                        m.id === newMsg.id ? { ...m, sender: fetchedSender } : m
+                      ),
+                    },
+                  }));
+                }
+              });
+          }
         }
       )
+      .on('broadcast', { event: 'direct_message' }, (event) => {
+        const msg = event.payload as Message;
+        if (!msg || !msg.conversation_id) return;
+        const activeId = get().activeConversationId;
+
+        if (activeId === msg.conversation_id) {
+          set((st) => {
+            const list = st.messages[activeId] || [];
+            if (list.some((m) => m.id === msg.id)) return st;
+            return {
+              messages: {
+                ...st.messages,
+                [activeId]: [...list, msg],
+              },
+            };
+          });
+          soundEffects.playMessageSound();
+        }
+
+        set((st) => {
+          let found = false;
+          const updated = st.conversations.map((c) => {
+            if (c.id === msg.conversation_id) {
+              found = true;
+              return {
+                ...c,
+                last_message: msg,
+                last_message_at: msg.created_at,
+                unread_count: activeId === c.id ? 0 : (c.unread_count || 0) + 1,
+              };
+            }
+            return c;
+          });
+
+          if (!found) {
+            get().loadConversations();
+            return st;
+          }
+
+          updated.sort(
+            (a, b) =>
+              new Date(b.last_message_at || b.created_at).getTime() -
+              new Date(a.last_message_at || a.created_at).getTime()
+          );
+
+          return { conversations: updated };
+        });
+      })
       .subscribe();
 
     set({ globalRealtimeChannel: channel });

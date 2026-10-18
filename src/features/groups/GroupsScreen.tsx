@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Users, Plus, MessageCircle } from 'lucide-react';
+import { Users, Plus, MessageCircle, Camera, Mic, FileText, Phone } from 'lucide-react';
 import { useChatStore } from '@/stores/chatStore';
-import { formatChatTimestamp } from '@/lib/utils';
+import { formatChatTimestamp, getMessagePreviewText, isMediaUrl } from '@/lib/utils';
 import { CreateGroupModal } from './CreateGroupModal';
 
 interface GroupsScreenProps {
@@ -72,13 +72,22 @@ export const GroupsScreen: React.FC<GroupsScreenProps> = ({ onSelectConversation
                       {group.title}
                     </h3>
 
-                    <p className="text-xs text-[#9BA5A8] truncate mt-1">
+                    <p className="text-xs text-[#9BA5A8] truncate mt-1 flex items-center gap-1">
                       {lastMsg ? (
                         <>
-                          <span className="text-brand font-medium">
+                          <span className="text-brand font-medium shrink-0">
                             {lastMsg.sender?.display_name || 'Member'}:{' '}
                           </span>
-                          {lastMsg.content}
+                          {lastMsg.message_type === 'image' || isMediaUrl(lastMsg.content) ? (
+                            <Camera size={13} className="text-brand shrink-0 inline mr-0.5" />
+                          ) : lastMsg.message_type === 'audio' ? (
+                            <Mic size={13} className="text-brand shrink-0 inline mr-0.5" />
+                          ) : lastMsg.message_type === 'file' ? (
+                            <FileText size={13} className="text-brand shrink-0 inline mr-0.5" />
+                          ) : lastMsg.message_type === 'call_log' ? (
+                            <Phone size={13} className="text-brand shrink-0 inline mr-0.5" />
+                          ) : null}
+                          <span className="truncate">{getMessagePreviewText(lastMsg)}</span>
                         </>
                       ) : (
                         'No messages yet'

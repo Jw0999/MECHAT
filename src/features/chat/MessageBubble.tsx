@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { Message } from '@/types/database.types';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
-import { formatMessageTime, formatFileSize, cn } from '@/lib/utils';
+import { formatMessageTime, formatFileSize, isUrl, isMediaUrl, getMessagePreviewText, cn } from '@/lib/utils';
 import {
   Check,
   CheckCheck,
@@ -157,8 +157,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 isOutgoing ? 'text-[#0B0F10]/85 font-normal' : 'text-[#9BA5A8]'
               )}
             >
-              {replyTarget.content ||
-                (replyTarget.message_type === 'image' ? '📷 Photo' : 'Voice note')}
+              {getMessagePreviewText(replyTarget)}
             </span>
           </div>
         )}
@@ -181,15 +180,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <MoreVertical size={14} />
         </button>
 
-        {/* Text Message */}
-        {message.message_type === 'text' && (
+        {/* Text Message (only rendered if NOT a media URL) */}
+        {message.message_type === 'text' && !isMediaUrl(message.content) && (
           <p className="whitespace-pre-wrap break-words leading-relaxed select-text pr-3">
             {message.content}
           </p>
         )}
 
-        {/* Image Attachment */}
-        {message.message_type === 'image' && (
+        {/* Image Attachment (or legacy messages where content was a media URL) */}
+        {(message.message_type === 'image' || isMediaUrl(message.content)) && (
           <div className="space-y-1.5 max-w-sm">
             <div
               onClick={() => setIsImageViewerOpen(true)}
@@ -208,10 +207,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               </div>
             </div>
 
-            {message.content &&
-              message.content !== message.metadata?.file_url && (
-                <p className="whitespace-pre-wrap break-words text-xs pt-1 px-1">{message.content}</p>
-              )}
+            {/* Render caption text ONLY if it is real user text and NOT a URL */}
+            {message.content && !isUrl(message.content) && (
+              <p className="whitespace-pre-wrap break-words text-xs pt-1 px-1">{message.content}</p>
+            )}
           </div>
         )}
 
