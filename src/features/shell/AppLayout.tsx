@@ -9,7 +9,9 @@ import { CallingScreen } from '@/features/calling/CallingScreen';
 import { GroupsScreen } from '@/features/groups/GroupsScreen';
 import { SettingsScreen } from '@/features/settings/SettingsScreen';
 import { CallOverlayModal } from '@/features/calling/CallOverlayModal';
+import { GroupCallModal } from '@/features/calling/GroupCallModal';
 import { useChatStore } from '@/stores/chatStore';
+import { useCallStore } from '@/stores/callStore';
 import { MessageCircle } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
@@ -19,10 +21,13 @@ export const AppLayout: React.FC = () => {
   const loadConversations = useChatStore((s) => s.loadConversations);
   const initGlobalMessageSubscription = useChatStore((s) => s.initGlobalMessageSubscription);
   const stopGlobalMessageSubscription = useChatStore((s) => s.stopGlobalMessageSubscription);
+  const initCallSignaling = useCallStore((s) => s.initCallSignaling);
+  const stopCallSignaling = useCallStore((s) => s.stopCallSignaling);
 
   useEffect(() => {
     loadConversations();
     initGlobalMessageSubscription();
+    initCallSignaling();
 
     // 10-second heartbeat check while document is visible to guarantee live sync
     const interval = setInterval(() => {
@@ -38,8 +43,9 @@ export const AppLayout: React.FC = () => {
     return () => {
       clearInterval(interval);
       stopGlobalMessageSubscription();
+      stopCallSignaling();
     };
-  }, [loadConversations, initGlobalMessageSubscription, stopGlobalMessageSubscription]);
+  }, [loadConversations, initGlobalMessageSubscription, stopGlobalMessageSubscription, initCallSignaling, stopCallSignaling]);
 
   const handleSelectTab = (tab: NavTab) => {
     setCurrentTab(tab);
@@ -135,6 +141,9 @@ export const AppLayout: React.FC = () => {
 
       {/* Fullscreen Call Overlay for Audio & Video calls */}
       <CallOverlayModal />
+
+      {/* Fullscreen Group Call Overlay for Multi-Peer Voice & Video */}
+      <GroupCallModal />
 
       {/* PWA Install Banner */}
       <InstallPrompt />

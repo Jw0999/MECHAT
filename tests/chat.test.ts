@@ -121,5 +121,60 @@ describe('Chat Reply & Calling Logic', () => {
     expect(sentDoc.metadata?.file_name).toBe('Project_Brief.pdf');
     expect(sentDoc.metadata?.file_size).toBe(1048576);
   });
+
+  it('manages 1-on-1 call flow (initiate, mute, video toggle, end)', async () => {
+    const { useCallStore } = await import('../src/stores/callStore');
+    const callStore = useCallStore.getState();
+
+    const mockRemoteUser = {
+      id: 'demo-user-2',
+      username: 'ninaflora',
+      display_name: 'Nina Flora',
+      avatar_url: '',
+      bio: '',
+      online_status: 'online' as const,
+      last_seen: '',
+      privacy_online: true,
+      privacy_last_seen: true,
+      privacy_read_receipts: true,
+      created_at: '',
+      updated_at: '',
+    };
+
+    // Initiate call
+    await callStore.initiateCall(mockRemoteUser, 'video', 'conv-nina');
+    expect(useCallStore.getState().activeCall).toBeDefined();
+    expect(useCallStore.getState().activeCall?.callType).toBe('video');
+    expect(useCallStore.getState().activeCall?.remoteUser?.display_name).toBe('Nina Flora');
+
+    // Toggle mute and video
+    callStore.toggleMute();
+    callStore.toggleVideo();
+
+    // End call
+    callStore.endCall();
+    expect(useCallStore.getState().activeCall).toBeNull();
+  });
+
+  it('manages group call flow (initiate, participants, mute, leave)', async () => {
+    const { useCallStore } = await import('../src/stores/callStore');
+    const callStore = useCallStore.getState();
+
+    // Initiate group call
+    await callStore.initiateGroupCall('group-1', 'Product Design Team', 'video');
+    expect(useCallStore.getState().activeGroupCall).toBeDefined();
+    expect(useCallStore.getState().activeGroupCall?.groupTitle).toBe('Product Design Team');
+    expect(useCallStore.getState().activeGroupCall?.status).toBe('connected');
+    expect(useCallStore.getState().activeGroupCall?.participants.length).toBeGreaterThanOrEqual(1);
+
+    // Toggle group mute & video
+    callStore.toggleGroupMute();
+    callStore.toggleGroupVideo();
+
+    // Leave group call
+    callStore.leaveGroupCall();
+    expect(useCallStore.getState().activeGroupCall).toBeNull();
+  });
 });
+
 

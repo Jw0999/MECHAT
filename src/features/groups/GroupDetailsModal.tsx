@@ -50,7 +50,7 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
   const toggleGroupAdmin = useChatStore((s) => s.toggleGroupAdmin);
   const leaveGroup = useChatStore((s) => s.leaveGroup);
   const toggleMuteGroup = useChatStore((s) => s.toggleMuteGroup);
-  const initiateCall = useCallStore((s) => s.initiateCall);
+  const initiateGroupCall = useCallStore((s) => s.initiateGroupCall);
 
   // Local state for editing
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -112,21 +112,8 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
   };
 
   const handleStartCall = (type: 'audio' | 'video') => {
-    const groupProfile: Profile = {
-      id: conversation.id,
-      username: conversation.title?.toLowerCase().replace(/\s+/g, '_') || 'group',
-      display_name: conversation.title || 'Group',
-      avatar_url: conversation.avatar_url,
-      bio: conversation.description || null,
-      online_status: 'online',
-      last_seen: new Date().toISOString(),
-      privacy_online: true,
-      privacy_last_seen: true,
-      privacy_read_receipts: true,
-      created_at: conversation.created_at,
-      updated_at: conversation.updated_at,
-    };
-    initiateCall(groupProfile, type);
+    const memberProfiles = members.map((m) => m.profile).filter(Boolean) as Profile[];
+    initiateGroupCall(conversation.id, conversation.title || 'Group', type, memberProfiles);
     onClose();
   };
 

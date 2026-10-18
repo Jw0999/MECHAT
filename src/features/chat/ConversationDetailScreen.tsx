@@ -30,6 +30,8 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
   const loadMessages = useChatStore((s) => s.loadMessages);
 
   const initiateCall = useCallStore((s) => s.initiateCall);
+  const initiateGroupCall = useCallStore((s) => s.initiateGroupCall);
+  const activeGroupCall = useCallStore((s) => s.activeGroupCall);
 
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [isGroupDetailsOpen, setIsGroupDetailsOpen] = useState(false);
@@ -80,11 +82,16 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
 
   const handleStartCall = useCallback(
     (type: 'audio' | 'video') => {
-      if (conversation?.other_user) {
-        initiateCall(conversation.other_user, type);
+      if (isGroup && conversation) {
+        const memberProfiles = (conversation.members || [])
+          .map((m) => m.profile)
+          .filter(Boolean) as any[];
+        initiateGroupCall(conversation.id, conversation.title || 'Group Call', type, memberProfiles);
+      } else if (conversation?.other_user) {
+        initiateCall(conversation.other_user, type, conversation.id);
       }
     },
-    [conversation, initiateCall]
+    [conversation, isGroup, initiateCall, initiateGroupCall]
   );
 
   const handleRefresh = async () => {
@@ -170,6 +177,27 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
           )}
         </div>
       </header>
+
+      {/* Active Group Call Banner */}
+      {isGroup && activeGroupCall && activeGroupCall.groupId === conversationId && (
+        <div className="bg-brand/15 border-b border-brand/30 px-3.5 py-2 flex items-center justify-between z-10 animate-fade-in shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0 pr-2">
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand" />
+            </span>
+            <p className="text-xs font-semibold text-brand truncate">
+              Group {activeGroupCall.callType === 'video' ? 'Video' : 'Voice'} Call active ({activeGroupCall.participants.length} connected)
+            </p>
+          </div>
+          <button
+            onClick={() => handleStartCall(activeGroupCall.callType)}
+            className="px-3 py-1 rounded-full bg-brand text-[#0B0F10] text-xs font-bold shadow-md hover:bg-brand/90 active:scale-95 transition shrink-0"
+          >
+            Open Call
+          </button>
+        </div>
+      )}
 
       {/* Message History Stream */}
       <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 space-y-1.5 overscroll-contain">

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff } from 'lucide-react';
+import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, RotateCw } from 'lucide-react';
 import { useCallStore } from '@/stores/callStore';
 import { useAuthStore } from '@/stores/authStore';
 import { formatDuration } from '@/lib/utils';
@@ -13,6 +13,7 @@ export const CallOverlayModal: React.FC = () => {
   const endCall = useCallStore((s) => s.endCall);
   const toggleMute = useCallStore((s) => s.toggleMute);
   const toggleVideo = useCallStore((s) => s.toggleVideo);
+  const flipCamera = useCallStore((s) => s.flipCamera);
   const currentUser = useAuthStore((s) => s.profile);
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -309,6 +310,16 @@ export const CallOverlayModal: React.FC = () => {
                 title={activeCall.isVideoOff ? 'Enable camera' : 'Disable camera'}
               >
                 {activeCall.isVideoOff ? <VideoOff size={20} /> : <Video size={20} />}
+              </button>
+            )}
+
+            {isVideo && !activeCall.isVideoOff && (
+              <button
+                onClick={flipCamera}
+                className="w-12 h-12 rounded-full bg-[#252C2E] text-[#F5F7F7] hover:bg-[#323B3E] flex items-center justify-center transition shadow-md active:scale-95"
+                title="Switch front/back camera"
+              >
+                <RotateCw size={19} />
               </button>
             )}
 

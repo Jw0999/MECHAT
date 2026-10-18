@@ -3,6 +3,7 @@ import type { Profile } from '@/types/database.types';
 export interface WebRTCCallbacks {
   onRemoteStream?: (stream: MediaStream) => void;
   onLocalStream?: (stream: MediaStream) => void;
+  onIceCandidate?: (candidate: RTCIceCandidate) => void;
   onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
   onError?: (error: Error) => void;
 }
@@ -14,12 +15,14 @@ export class WebRTCManager {
   private callbacks: WebRTCCallbacks = {};
   private fallbackCanvasInterval: ReturnType<typeof setInterval> | null = null;
   private remoteCanvasInterval: ReturnType<typeof setInterval> | null = null;
+  private currentFacingMode: 'user' | 'environment' = 'user';
 
   private rtcConfig: RTCConfiguration = {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' },
     ],
   };
 
@@ -27,55 +30,78 @@ export class WebRTCManager {
     this.callbacks = callbacks;
   }
 
-  public async startLocalMedia(isVideo: boolean): Promise<MediaStream> {
+  public async startLocalMedia(isVideo: boolean): Promise<MediaStream | null> {
     // Release any prior tracks
     this.stopMedia();
 
     if (isVideo) {
       try {
-        // Try real video & audio
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: {
-            facingMode: 'user',
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        });
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+          this.localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video: {
+              facingMode: 'user',
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          });
+        } else {
+          throw new Error('getUserMedia unavailable');
+        }
       } catch (videoErr) {
-        console.warn('Real webcam capture failed, falling back to audio + canvas video:', videoErr);
         let audioTracks: MediaStreamTrack[] = [];
         try {
-          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          audioTracks = audioStream.getAudioTracks();
-        } catch (audioErr) {
-          console.warn('Microphone access failed, using synthetic audio track:', audioErr);
-          const synthAudio = this.createSyntheticAudioTrack();
-          if (synthAudio) audioTracks.push(synthAudio);
+          if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+            const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioTracks = audioStream.getAudioTracks();
+          }
+        } catch {
+          // ignore
         }
 
+        const synthAudio = this.createSyntheticAudioTrack();
+        if (synthAudio && audioTracks.length === 0) audioTracks.push(synthAudio);
+
         const fallbackVideo = this.createFallbackVideoTrack();
-        this.localStream = new MediaStream([...audioTracks, fallbackVideo]);
+        const tracks: MediaStreamTrack[] = [...audioTracks];
+        if (fallbackVideo) tracks.push(fallbackVideo);
+
+        try {
+          this.localStream = typeof MediaStream !== 'undefined' ? new MediaStream(tracks) : null;
+        } catch {
+          this.localStream = null;
+        }
       }
     } else {
       // Audio only call
       try {
-        this.localStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
-      } catch (audioErr) {
-        console.warn('Microphone access failed, using synthetic audio track:', audioErr);
+        if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+          this.localStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video: false,
+          });
+        } else {
+          throw new Error('getUserMedia unavailable');
+        }
+      } catch {
         const synthAudio = this.createSyntheticAudioTrack();
-        this.localStream = synthAudio ? new MediaStream([synthAudio]) : new MediaStream();
+        try {
+          this.localStream = synthAudio
+            ? new MediaStream([synthAudio])
+            : typeof MediaStream !== 'undefined'
+            ? new MediaStream()
+            : null;
+        } catch {
+          this.localStream = null;
+        }
       }
     }
 
@@ -85,35 +111,114 @@ export class WebRTCManager {
     return this.localStream;
   }
 
-  public initializePeerConnection(): RTCPeerConnection {
-    this.peerConnection = new RTCPeerConnection(this.rtcConfig);
-    this.remoteStream = new MediaStream();
+  public initializePeerConnection(): RTCPeerConnection | null {
+    if (typeof RTCPeerConnection === 'undefined') return null;
+    try {
+      this.peerConnection = new RTCPeerConnection(this.rtcConfig);
+      this.remoteStream = typeof MediaStream !== 'undefined' ? new MediaStream() : null;
 
-    if (this.callbacks.onRemoteStream) {
-      this.callbacks.onRemoteStream(this.remoteStream);
-    }
-
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => {
-        if (this.peerConnection && this.localStream) {
-          this.peerConnection.addTrack(track, this.localStream);
-        }
-      });
-    }
-
-    this.peerConnection.ontrack = (event) => {
-      event.streams[0].getTracks().forEach((track) => {
-        this.remoteStream?.addTrack(track);
-      });
-    };
-
-    this.peerConnection.onconnectionstatechange = () => {
-      if (this.peerConnection && this.callbacks.onConnectionStateChange) {
-        this.callbacks.onConnectionStateChange(this.peerConnection.connectionState);
+      if (this.callbacks.onRemoteStream && this.remoteStream) {
+        this.callbacks.onRemoteStream(this.remoteStream);
       }
-    };
 
-    return this.peerConnection;
+      if (this.localStream && this.peerConnection) {
+        this.localStream.getTracks().forEach((track) => {
+          if (this.peerConnection && this.localStream) {
+            this.peerConnection.addTrack(track, this.localStream);
+          }
+        });
+      }
+
+      this.peerConnection.ontrack = (event) => {
+        event.streams[0]?.getTracks().forEach((track) => {
+          this.remoteStream?.addTrack(track);
+        });
+      };
+
+      this.peerConnection.onconnectionstatechange = () => {
+        if (this.peerConnection && this.callbacks.onConnectionStateChange) {
+          this.callbacks.onConnectionStateChange(this.peerConnection.connectionState);
+        }
+      };
+
+      this.peerConnection.onicecandidate = (event) => {
+        if (event.candidate && this.callbacks.onIceCandidate) {
+          this.callbacks.onIceCandidate(event.candidate);
+        }
+      };
+
+      return this.peerConnection;
+    } catch {
+      return null;
+    }
+  }
+
+  public async createOffer(): Promise<RTCSessionDescriptionInit | null> {
+    if (!this.peerConnection) return null;
+    const offer = await this.peerConnection.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
+    await this.peerConnection.setLocalDescription(offer);
+    return offer;
+  }
+
+  public async createAnswer(): Promise<RTCSessionDescriptionInit | null> {
+    if (!this.peerConnection) return null;
+    const answer = await this.peerConnection.createAnswer();
+    await this.peerConnection.setLocalDescription(answer);
+    return answer;
+  }
+
+  public async setRemoteDescription(desc: RTCSessionDescriptionInit): Promise<void> {
+    if (!this.peerConnection) return;
+    await this.peerConnection.setRemoteDescription(new RTCSessionDescription(desc));
+  }
+
+  public async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    if (!this.peerConnection) return;
+    try {
+      await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (e) {
+      console.warn('Error adding ICE candidate:', e);
+    }
+  }
+
+  public async switchCamera(): Promise<MediaStream | null> {
+    if (!this.localStream) return null;
+    const videoTrack = this.localStream.getVideoTracks()[0];
+    if (!videoTrack) return null;
+
+    try {
+      const targetFacing = this.currentFacingMode === 'environment' ? 'user' : 'environment';
+      videoTrack.stop();
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: targetFacing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      });
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      this.currentFacingMode = targetFacing;
+
+      // Replace track on local stream
+      this.localStream.removeTrack(videoTrack);
+      this.localStream.addTrack(newVideoTrack);
+
+      // Replace track on peer connection if active
+      if (this.peerConnection) {
+        const sender = this.peerConnection.getSenders().find((s) => s.track?.kind === 'video');
+        if (sender) {
+          await sender.replaceTrack(newVideoTrack);
+        }
+      }
+
+      if (this.callbacks.onLocalStream) {
+        this.callbacks.onLocalStream(this.localStream);
+      }
+      return this.localStream;
+    } catch (e) {
+      console.warn('Switch camera error:', e);
+      return this.localStream;
+    }
   }
 
   public hasRemoteTracks(): boolean {
@@ -238,70 +343,81 @@ export class WebRTCManager {
     }
   }
 
-  private createFallbackVideoTrack(): MediaStreamTrack {
-    const canvas = document.createElement('canvas');
-    canvas.width = 640;
-    canvas.height = 480;
-    const ctx = canvas.getContext('2d');
+  private createFallbackVideoTrack(): MediaStreamTrack | null {
+    if (typeof document === 'undefined') return null;
+    try {
+      const canvas = document.createElement('canvas');
+      if (!canvas || (!canvas.captureStream && !(canvas as any).mozCaptureStream)) {
+        return null;
+      }
+      canvas.width = 640;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
 
-    let frame = 0;
-    const render = () => {
-      if (!ctx) return;
-      frame++;
-      const grad = ctx.createLinearGradient(0, 0, 640, 480);
-      grad.addColorStop(0, '#151A1C');
-      grad.addColorStop(1, '#0B0F10');
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, 640, 480);
+      let frame = 0;
+      const render = () => {
+        if (!ctx) return;
+        frame++;
+        const grad = ctx.createLinearGradient(0, 0, 640, 480);
+        grad.addColorStop(0, '#151A1C');
+        grad.addColorStop(1, '#0B0F10');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 640, 480);
 
-      // Subtle pulse
-      const pulse = Math.sin(frame * 0.05) * 8;
-      ctx.beginPath();
-      ctx.arc(320, 210, 80 + pulse, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(165, 229, 72, 0.12)';
-      ctx.fill();
+        // Subtle pulse
+        const pulse = Math.sin(frame * 0.05) * 8;
+        ctx.beginPath();
+        ctx.arc(320, 210, 80 + pulse, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(165, 229, 72, 0.12)';
+        ctx.fill();
 
-      // Camera Circle
-      ctx.beginPath();
-      ctx.arc(320, 210, 70, 0, Math.PI * 2);
-      ctx.fillStyle = '#252C2E';
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#A5E548';
-      ctx.stroke();
+        // Camera Circle
+        ctx.beginPath();
+        ctx.arc(320, 210, 70, 0, Math.PI * 2);
+        ctx.fillStyle = '#252C2E';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = '#A5E548';
+        ctx.stroke();
 
-      // Stylized head & shoulders
-      ctx.fillStyle = '#A5E548';
-      ctx.beginPath();
-      ctx.arc(320, 192, 26, 0, Math.PI * 2);
-      ctx.fill();
+        // Stylized head & shoulders
+        ctx.fillStyle = '#A5E548';
+        ctx.beginPath();
+        ctx.arc(320, 192, 26, 0, Math.PI * 2);
+        ctx.fill();
 
-      ctx.beginPath();
-      ctx.arc(320, 275, 42, Math.PI, 0, false);
-      ctx.fill();
+        ctx.beginPath();
+        ctx.arc(320, 275, 42, Math.PI, 0, false);
+        ctx.fill();
 
-      // Label
-      ctx.fillStyle = '#9BA5A8';
-      ctx.font = '16px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Live Camera Preview', 320, 340);
-    };
+        // Label
+        ctx.fillStyle = '#9BA5A8';
+        ctx.font = '16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Live Camera Preview', 320, 340);
+      };
 
-    render();
-    if (this.fallbackCanvasInterval) {
-      clearInterval(this.fallbackCanvasInterval);
-    }
-    this.fallbackCanvasInterval = setInterval(render, 100);
-
-    const stream = canvas.captureStream ? canvas.captureStream(15) : (canvas as any).mozCaptureStream(15);
-    const track = stream.getVideoTracks()[0];
-    track.onended = () => {
+      render();
       if (this.fallbackCanvasInterval) {
         clearInterval(this.fallbackCanvasInterval);
-        this.fallbackCanvasInterval = null;
       }
-    };
-    return track;
+      this.fallbackCanvasInterval = setInterval(render, 100);
+
+      const stream = canvas.captureStream ? canvas.captureStream(15) : (canvas as any).mozCaptureStream(15);
+      const track = stream?.getVideoTracks?.()[0] || null;
+      if (track) {
+        track.onended = () => {
+          if (this.fallbackCanvasInterval) {
+            clearInterval(this.fallbackCanvasInterval);
+            this.fallbackCanvasInterval = null;
+          }
+        };
+      }
+      return track;
+    } catch {
+      return null;
+    }
   }
 
   public toggleMute(): boolean {
