@@ -83,6 +83,10 @@ interface CallState {
   flipGroupCamera: () => Promise<void>;
 }
 
+// Pending ICE candidates queue and group WebRTC peer mesh
+const pendingIceCandidates: RTCIceCandidateInit[] = [];
+const groupPeerConnections = new Map<string, WebRTCManager>();
+
 // Initial realistic call history
 const INITIAL_CALL_HISTORY: CallLog[] = [
   {
@@ -281,11 +285,15 @@ export const useCallStore = create<CallState>((set, get) => ({
       .on('broadcast', { event: 'call:ice-candidate' }, async (payload) => {
         const { callId, candidate } = payload.payload || {};
         const currentActive = get().activeCall;
-        if (currentActive && (!callId || currentActive.callId === callId) && candidate && get().webrtcManager) {
-          try {
-            await get().webrtcManager?.addIceCandidate(candidate);
-          } catch (e) {
-            console.warn('Add ICE candidate error:', e);
+        if (currentActive && (!callId || currentActive.callId === callId) && candidate) {
+          if (get().webrtcManager) {
+            try {
+              await get().webrtcManager?.addIceCandidate(candidate);
+            } catch (e) {
+              console.warn('Add ICE candidate error:', e);
+            }
+          } else {
+            pendingIceCandidates.push(candidate);
           }
         }
       })
@@ -521,6 +529,8 @@ export const useCallStore = create<CallState>((set, get) => ({
           if (get().activeCall?.status === 'calling') {
             if (callType === 'video' && !manager.hasRemoteTracks()) {
               manager.simulateRemoteStream(remoteUser);
+            } else if (callType === 'audio' && !manager.hasRemoteTracks()) {
+              manager.simulateAudioStream();
             }
 
             set((state) => (state.activeCall ? { activeCall: { ...state.activeCall, status: 'connected' } } : state));
@@ -627,20 +637,8 @@ export const useCallStore = create<CallState>((set, get) => ({
 
     set({ webrtcManager: manager });
 
-    // 3. Dispatch call:accepted signal to caller IMMEDIATELY on their permanent channel (0ms caller pickup)
+    // 3. Subscribe to session channel if live Supabase mode
     if (!isDemo && activeCall.callId && activeCall.remoteUser?.id) {
-      const callerDirectChan = supabase.channel(`user-calls:${activeCall.remoteUser.id}`);
-      callerDirectChan.subscribe((st) => {
-        if (st === 'SUBSCRIBED') {
-          callerDirectChan.send({
-            type: 'broadcast',
-            event: 'call:accepted',
-            payload: { callId: activeCall.callId },
-          });
-          setTimeout(() => supabase.removeChannel(callerDirectChan), 3000);
-        }
-      });
-
       sessionChan = supabase.channel(`call-session:${activeCall.callId}`);
       sessionChan
         .on('broadcast', { event: 'call:ice-candidate' }, async (payload: any) => {
@@ -653,15 +651,7 @@ export const useCallStore = create<CallState>((set, get) => ({
           toast.info('Call ended');
           get().endCall();
         })
-        .subscribe(async (status: string) => {
-          if (status === 'SUBSCRIBED') {
-            sessionChan.send({
-              type: 'broadcast',
-              event: 'call:accepted',
-              payload: { callId: activeCall.callId },
-            });
-          }
-        });
+        .subscribe();
 
       set({ sessionChannel: sessionChan });
     }
@@ -671,9 +661,19 @@ export const useCallStore = create<CallState>((set, get) => ({
       await manager.startLocalMedia(activeCall.callType === 'video');
       manager.initializePeerConnection();
 
+      // Drain any queued ICE candidates received while phone was ringing
+      while (pendingIceCandidates.length > 0) {
+        const cand = pendingIceCandidates.shift();
+        if (cand) {
+          await manager.addIceCandidate(cand);
+        }
+      }
+
       if (isDemo) {
         if (activeCall.callType === 'video' && !manager.hasRemoteTracks()) {
           manager.simulateRemoteStream(activeCall.remoteUser);
+        } else if (activeCall.callType === 'audio' && !manager.hasRemoteTracks()) {
+          manager.simulateAudioStream();
         }
       } else if (activeCall.sdpOffer) {
         await manager.setRemoteDescription(activeCall.sdpOffer);
@@ -694,8 +694,17 @@ export const useCallStore = create<CallState>((set, get) => ({
                 event: 'call:accepted',
                 payload: { callId: activeCall.callId, sdpAnswer: answer },
               });
-              setTimeout(() => supabase.removeChannel(directChan), 2000);
+              setTimeout(() => supabase.removeChannel(directChan), 3000);
             }
+          });
+        }
+      } else {
+        // Fallback notification if no offer provided
+        if (sessionChan) {
+          sessionChan.send({
+            type: 'broadcast',
+            event: 'call:accepted',
+            payload: { callId: activeCall.callId },
           });
         }
       }
@@ -797,6 +806,7 @@ export const useCallStore = create<CallState>((set, get) => ({
       }
     }
 
+    pendingIceCandidates.length = 0;
     set({ activeCall: null, timerInterval: null, webrtcManager: null, sessionChannel: null });
   },
 
@@ -977,7 +987,67 @@ export const useCallStore = create<CallState>((set, get) => ({
           config: { presence: { key: currentUser.id } },
         });
 
+        // Listen for WebRTC Mesh signals (offer, answer, candidate) from other group call members
         groupChannel
+          .on('broadcast', { event: 'group-call:signal' }, async (payload) => {
+            const { from, to, type, sdp, candidate } = payload.payload || {};
+            if (to !== currentUser.id || !from) return;
+
+            let peerMgr = groupPeerConnections.get(from);
+            if (!peerMgr && type === 'offer') {
+              peerMgr = new WebRTCManager({
+                onRemoteStream: (remoteStream) => {
+                  set((state) => {
+                    if (!state.activeGroupCall) return state;
+                    const participants = state.activeGroupCall.participants.map((p) =>
+                      p.id === from ? { ...p, stream: remoteStream } : p
+                    );
+                    return { activeGroupCall: { ...state.activeGroupCall, participants } };
+                  });
+                },
+                onIceCandidate: (cand) => {
+                  groupChannel.send({
+                    type: 'broadcast',
+                    event: 'group-call:signal',
+                    payload: { from: currentUser.id, to: from, type: 'candidate', candidate: cand },
+                  });
+                },
+              });
+              groupPeerConnections.set(from, peerMgr);
+              if (stream) {
+                peerMgr.setExistingLocalStream(stream);
+              }
+              peerMgr.initializePeerConnection();
+            }
+
+            if (peerMgr) {
+              if (type === 'offer' && sdp) {
+                try {
+                  await peerMgr.setRemoteDescription(sdp);
+                  const answer = await peerMgr.createAnswer();
+                  groupChannel.send({
+                    type: 'broadcast',
+                    event: 'group-call:signal',
+                    payload: { from: currentUser.id, to: from, type: 'answer', sdp: answer },
+                  });
+                } catch (e) {
+                  console.warn('Group call offer processing error:', e);
+                }
+              } else if (type === 'answer' && sdp) {
+                try {
+                  await peerMgr.setRemoteDescription(sdp);
+                } catch (e) {
+                  console.warn('Group call answer processing error:', e);
+                }
+              } else if (type === 'candidate' && candidate) {
+                try {
+                  await peerMgr.addIceCandidate(candidate);
+                } catch (e) {
+                  console.warn('Group call ICE candidate error:', e);
+                }
+              }
+            }
+          })
           .on('presence', { event: 'sync' }, () => {
             const presenceState = groupChannel.presenceState();
             const remoteParticipants: GroupParticipant[] = [];
@@ -986,9 +1056,11 @@ export const useCallStore = create<CallState>((set, get) => ({
               if (key !== currentUser.id) {
                 const presenceData = (presenceState[key]?.[0] as any) || {};
                 if (presenceData.user) {
+                  const existingP = get().activeGroupCall?.participants.find((p) => p.id === key);
                   remoteParticipants.push({
                     id: key,
                     user: presenceData.user,
+                    stream: existingP?.stream || null,
                     isMuted: presenceData.isMuted || false,
                     isVideoOff: presenceData.isVideoOff || false,
                     isSpeaking: false,
@@ -1009,6 +1081,50 @@ export const useCallStore = create<CallState>((set, get) => ({
                 },
               };
             });
+
+            // WebRTC Full-Mesh: Initiator rule (lexicographical smaller ID initiates offer)
+            remoteParticipants.forEach(async (peer) => {
+              if (currentUser.id < peer.id && !groupPeerConnections.has(peer.id)) {
+                const peerMgr = new WebRTCManager({
+                  onRemoteStream: (remoteStream) => {
+                    set((state) => {
+                      if (!state.activeGroupCall) return state;
+                      const participants = state.activeGroupCall.participants.map((p) =>
+                        p.id === peer.id ? { ...p, stream: remoteStream } : p
+                      );
+                      return { activeGroupCall: { ...state.activeGroupCall, participants } };
+                    });
+                  },
+                  onIceCandidate: (cand) => {
+                    groupChannel.send({
+                      type: 'broadcast',
+                      event: 'group-call:signal',
+                      payload: { from: currentUser.id, to: peer.id, type: 'candidate', candidate: cand },
+                    });
+                  },
+                });
+                groupPeerConnections.set(peer.id, peerMgr);
+                if (stream) {
+                  peerMgr.setExistingLocalStream(stream);
+                }
+                peerMgr.initializePeerConnection();
+                const offer = await peerMgr.createOffer();
+                groupChannel.send({
+                  type: 'broadcast',
+                  event: 'group-call:signal',
+                  payload: { from: currentUser.id, to: peer.id, type: 'offer', sdp: offer },
+                });
+              }
+            });
+
+            // Clean up any peers that left the call
+            const activeIds = new Set(remoteParticipants.map((p) => p.id));
+            for (const [peerId, peerMgr] of groupPeerConnections.entries()) {
+              if (!activeIds.has(peerId)) {
+                peerMgr.stopMedia(false);
+                groupPeerConnections.delete(peerId);
+              }
+            }
           })
           .subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
@@ -1082,7 +1198,7 @@ export const useCallStore = create<CallState>((set, get) => ({
               const peerStream =
                 callType === 'video'
                   ? new WebRTCManager({}).simulateRemoteStream(peer)
-                  : null;
+                  : new WebRTCManager({}).simulateAudioStream();
 
               set((state) => {
                 if (!state.activeGroupCall) return state;
@@ -1133,8 +1249,14 @@ export const useCallStore = create<CallState>((set, get) => ({
       clearInterval(groupTimerInterval);
     }
 
+    // Clean up all mesh peer connections
+    for (const peerMgr of groupPeerConnections.values()) {
+      peerMgr.stopMedia(false);
+    }
+    groupPeerConnections.clear();
+
     if (groupWebrtcManager) {
-      groupWebrtcManager.stopMedia();
+      groupWebrtcManager.stopMedia(true);
     }
 
     if (activeGroupCall && activeGroupCall.duration > 0) {

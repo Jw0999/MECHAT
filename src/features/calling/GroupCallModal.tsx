@@ -11,6 +11,20 @@ const ParticipantTile: React.FC<{
   isVideoCall: boolean;
 }> = ({ participant, isSelf, isVideoCall }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const setAudioRef = useCallback(
+    (el: HTMLAudioElement | null) => {
+      audioRef.current = el;
+      if (el && participant.stream) {
+        if (el.srcObject !== participant.stream) {
+          el.srcObject = participant.stream;
+        }
+        el.play().catch((e) => console.warn('Participant audio play error:', e));
+      }
+    },
+    [participant.stream]
+  );
 
   const setVideoRef = useCallback(
     (el: HTMLVideoElement | null) => {
@@ -34,16 +48,34 @@ const ParticipantTile: React.FC<{
     }
   }, [participant.stream, participant.isVideoOff]);
 
+  useEffect(() => {
+    if (audioRef.current && participant.stream) {
+      if (audioRef.current.srcObject !== participant.stream) {
+        audioRef.current.srcObject = participant.stream;
+      }
+      audioRef.current.play().catch(() => {});
+    }
+  }, [participant.stream, participant.isMuted]);
+
   const hasVideo = isVideoCall && !participant.isVideoOff && Boolean(participant.stream);
 
   return (
     <div className="relative w-full h-full min-h-[140px] rounded-3xl overflow-hidden bg-[#151A1C] border border-[#252C2E] flex items-center justify-center shadow-lg group">
+      {/* Dedicated audio element for remote participant voice feed */}
+      {!isSelf && participant.stream && (
+        <audio
+          ref={setAudioRef}
+          autoPlay
+          playsInline
+          className="hidden"
+        />
+      )}
       {hasVideo ? (
         <video
           ref={setVideoRef}
           autoPlay
           playsInline
-          muted={isSelf}
+          muted
           className={cn(
             'w-full h-full object-cover',
             isSelf ? '-scale-x-100' : ''

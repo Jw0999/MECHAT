@@ -12,9 +12,11 @@ export class WebRTCManager {
   private peerConnection: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
+  private candidateQueue: RTCIceCandidateInit[] = [];
   private callbacks: WebRTCCallbacks = {};
   private fallbackCanvasInterval: ReturnType<typeof setInterval> | null = null;
   private remoteCanvasInterval: ReturnType<typeof setInterval> | null = null;
+  private syntheticAudioCtx: AudioContext | null = null;
   private currentFacingMode: 'user' | 'environment' = 'user';
 
   private rtcConfig: RTCConfiguration = {
@@ -30,6 +32,14 @@ export class WebRTCManager {
     this.callbacks = callbacks;
   }
 
+  public getLocalStream(): MediaStream | null {
+    return this.localStream;
+  }
+
+  public setExistingLocalStream(stream: MediaStream): void {
+    this.localStream = stream;
+  }
+
   public async startLocalMedia(isVideo: boolean): Promise<MediaStream | null> {
     // Release any prior tracks
     this.stopMedia();
@@ -37,18 +47,26 @@ export class WebRTCManager {
     if (isVideo) {
       try {
         if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-          this.localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            },
-            video: {
-              facingMode: 'user',
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
-            },
-          });
+          try {
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+              video: {
+                facingMode: 'user',
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+              },
+            });
+          } catch {
+            // Progressive fallback if advanced constraints rejected by mobile browser
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+              video: true,
+            });
+          }
         } else {
           throw new Error('getUserMedia unavailable');
         }
@@ -80,14 +98,22 @@ export class WebRTCManager {
       // Audio only call
       try {
         if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
-          this.localStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            },
-            video: false,
-          });
+          try {
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+              },
+              video: false,
+            });
+          } catch {
+            // Progressive fallback if advanced constraints rejected by mobile browser
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+              video: false,
+            });
+          }
         } else {
           throw new Error('getUserMedia unavailable');
         }
@@ -115,11 +141,7 @@ export class WebRTCManager {
     if (typeof RTCPeerConnection === 'undefined') return null;
     try {
       this.peerConnection = new RTCPeerConnection(this.rtcConfig);
-      this.remoteStream = typeof MediaStream !== 'undefined' ? new MediaStream() : null;
-
-      if (this.callbacks.onRemoteStream && this.remoteStream) {
-        this.callbacks.onRemoteStream(this.remoteStream);
-      }
+      this.remoteStream = null;
 
       if (this.localStream && this.peerConnection) {
         this.localStream.getTracks().forEach((track) => {
@@ -130,9 +152,29 @@ export class WebRTCManager {
       }
 
       this.peerConnection.ontrack = (event) => {
-        event.streams[0]?.getTracks().forEach((track) => {
-          this.remoteStream?.addTrack(track);
-        });
+        if (event.streams && event.streams[0]) {
+          this.remoteStream = event.streams[0];
+        } else if (event.track) {
+          if (!this.remoteStream) {
+            this.remoteStream = new MediaStream();
+          }
+          if (!this.remoteStream.getTracks().some((t) => t.id === event.track.id)) {
+            this.remoteStream.addTrack(event.track);
+          }
+        }
+
+        // Unmute and enable all incoming audio tracks
+        if (this.remoteStream) {
+          this.remoteStream.getAudioTracks().forEach((track) => {
+            track.enabled = true;
+          });
+        }
+
+        if (this.callbacks.onRemoteStream && this.remoteStream) {
+          // Provide fresh MediaStream reference containing tracks so React hooks and callback refs re-bind immediately
+          const streamToNotify = new MediaStream(this.remoteStream.getTracks());
+          this.callbacks.onRemoteStream(streamToNotify);
+        }
       };
 
       this.peerConnection.onconnectionstatechange = () => {
@@ -165,7 +207,10 @@ export class WebRTCManager {
 
   public async createAnswer(): Promise<RTCSessionDescriptionInit | null> {
     if (!this.peerConnection) return null;
-    const answer = await this.peerConnection.createAnswer();
+    const answer = await this.peerConnection.createAnswer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true,
+    });
     await this.peerConnection.setLocalDescription(answer);
     return answer;
   }
@@ -173,10 +218,24 @@ export class WebRTCManager {
   public async setRemoteDescription(desc: RTCSessionDescriptionInit): Promise<void> {
     if (!this.peerConnection) return;
     await this.peerConnection.setRemoteDescription(new RTCSessionDescription(desc));
+    // Drain any queued candidates received before remote description
+    while (this.candidateQueue.length > 0) {
+      const cand = this.candidateQueue.shift();
+      if (cand) {
+        try {
+          await this.peerConnection.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn('Error applying queued ICE candidate:', e);
+        }
+      }
+    }
   }
 
   public async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
-    if (!this.peerConnection) return;
+    if (!this.peerConnection || !this.peerConnection.remoteDescription) {
+      this.candidateQueue.push(candidate);
+      return;
+    }
     try {
       await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (e) {
@@ -333,14 +392,32 @@ export class WebRTCManager {
     }
   }
 
+  public simulateAudioStream(): MediaStream {
+    const audioTrack = this.createSyntheticAudioTrack();
+    const tracks: MediaStreamTrack[] = [];
+    if (audioTrack) tracks.push(audioTrack);
+    this.remoteStream = new MediaStream(tracks);
+    if (this.callbacks.onRemoteStream) {
+      this.callbacks.onRemoteStream(this.remoteStream);
+    }
+    return this.remoteStream;
+  }
+
   private createSyntheticAudioTrack(): MediaStreamTrack | null {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return null;
       const audioCtx = new AudioCtx();
+      this.syntheticAudioCtx = audioCtx;
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      gain.gain.value = 0.001; // nearly silent
+      // Natural pleasant harmonic speech frequency
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(320, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
       const dst = audioCtx.createMediaStreamDestination();
       osc.connect(gain);
       gain.connect(dst);
@@ -448,7 +525,7 @@ export class WebRTCManager {
     return false;
   }
 
-  public stopMedia(): void {
+  public stopMedia(stopLocalTracks = true): void {
     if (this.fallbackCanvasInterval) {
       clearInterval(this.fallbackCanvasInterval);
       this.fallbackCanvasInterval = null;
@@ -458,7 +535,14 @@ export class WebRTCManager {
       this.remoteCanvasInterval = null;
     }
 
-    if (this.localStream) {
+    if (this.syntheticAudioCtx) {
+      try {
+        this.syntheticAudioCtx.close();
+      } catch {}
+      this.syntheticAudioCtx = null;
+    }
+
+    if (stopLocalTracks && this.localStream) {
       this.localStream.getTracks().forEach((track) => {
         track.stop();
       });
@@ -473,8 +557,12 @@ export class WebRTCManager {
     }
 
     if (this.peerConnection) {
-      this.peerConnection.close();
+      try {
+        this.peerConnection.close();
+      } catch {}
       this.peerConnection = null;
     }
+
+    this.candidateQueue = [];
   }
 }
