@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
-import { MessageCircle, LogIn, UserPlus, Sparkles, X, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { MessageCircle, LogIn, UserPlus, X, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export const AuthScreen: React.FC = () => {
   const login = useAuthStore((s) => s.login);
   const register = useAuthStore((s) => s.register);
-  const enableDemoMode = useAuthStore((s) => s.enableDemoMode);
   const isConfigured = useAuthStore((s) => s.isConfigured);
 
   const [mode, setMode] = useState<'welcome' | 'login' | 'signup'>('welcome');
@@ -139,21 +138,6 @@ export const AuthScreen: React.FC = () => {
             Sign Up
           </button>
         </div>
-
-        {/* Interactive Demo Mode Button (Instant Preview) */}
-        <button
-          onClick={() => enableDemoMode(0)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-full bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-xs font-bold transition mb-3"
-        >
-          <Sparkles size={15} />
-          <span>Try Interactive Demo Account</span>
-        </button>
-
-        {!isConfigured && (
-          <p className="text-[11px] text-[#9BA5A8] mt-1">
-            Supabase keys not yet provided in <code className="text-brand">.env</code>. You can click &quot;Try Interactive Demo Account&quot; to test everything immediately!
-          </p>
-        )}
       </div>
 
       {/* LOGIN MODAL */}
