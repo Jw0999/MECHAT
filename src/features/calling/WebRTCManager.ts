@@ -48,6 +48,7 @@ export class WebRTCManager {
       try {
         if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
           try {
+            // Standard portrait-first mobile constraints
             this.localStream = await navigator.mediaDevices.getUserMedia({
               audio: {
                 echoCancellation: true,
@@ -56,21 +57,34 @@ export class WebRTCManager {
               },
               video: {
                 facingMode: 'user',
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
               },
             });
           } catch {
-            // Progressive fallback if advanced constraints rejected by mobile browser
-            this.localStream = await navigator.mediaDevices.getUserMedia({
-              audio: true,
-              video: true,
-            });
+            try {
+              // Fallback to basic audio + video
+              this.localStream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: true,
+              });
+            } catch {
+              // Fallback: request video stream and audio stream separately
+              const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
+              let aTracks: MediaStreamTrack[] = [];
+              try {
+                const aStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                aTracks = aStream.getAudioTracks();
+              } catch {
+                const s = this.createSyntheticAudioTrack();
+                if (s) aTracks.push(s);
+              }
+              this.localStream = new MediaStream([...vStream.getVideoTracks(), ...aTracks]);
+            }
           }
         } else {
           throw new Error('getUserMedia unavailable');
         }
       } catch (videoErr) {
+        console.warn('Could not acquire hardware video stream:', videoErr);
         let audioTracks: MediaStreamTrack[] = [];
         try {
           if (typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
@@ -129,6 +143,12 @@ export class WebRTCManager {
           this.localStream = null;
         }
       }
+    }
+
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((t) => {
+        t.enabled = true;
+      });
     }
 
     if (this.callbacks.onLocalStream && this.localStream) {

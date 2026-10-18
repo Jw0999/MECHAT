@@ -26,27 +26,50 @@ const ParticipantTile: React.FC<{
     [participant.stream]
   );
 
+  const attachVideoStream = useCallback((el: HTMLVideoElement | null, stream: MediaStream | null) => {
+    if (!el) return;
+    if (!stream) {
+      el.srcObject = null;
+      return;
+    }
+    el.muted = true;
+    el.defaultMuted = true;
+    el.playsInline = true;
+    el.setAttribute('playsinline', 'true');
+    el.setAttribute('webkit-playsinline', 'true');
+
+    if (el.srcObject !== stream) {
+      el.srcObject = stream;
+    }
+
+    const playVideo = () => {
+      el.play().catch((err) => {
+        console.warn('Group tile video play deferred:', err);
+      });
+    };
+
+    if (el.readyState >= 2) {
+      playVideo();
+    } else {
+      el.onloadedmetadata = () => {
+        playVideo();
+      };
+    }
+  }, []);
+
   const setVideoRef = useCallback(
     (el: HTMLVideoElement | null) => {
       videoRef.current = el;
-      if (el && participant.stream) {
-        if (el.srcObject !== participant.stream) {
-          el.srcObject = participant.stream;
-        }
-        el.play().catch(() => {});
-      }
+      attachVideoStream(el, participant.stream || null);
     },
-    [participant.stream]
+    [participant.stream, attachVideoStream]
   );
 
   useEffect(() => {
     if (videoRef.current && participant.stream) {
-      if (videoRef.current.srcObject !== participant.stream) {
-        videoRef.current.srcObject = participant.stream;
-      }
-      videoRef.current.play().catch(() => {});
+      attachVideoStream(videoRef.current, participant.stream);
     }
-  }, [participant.stream, participant.isVideoOff]);
+  }, [participant.stream, participant.isVideoOff, attachVideoStream]);
 
   useEffect(() => {
     if (audioRef.current && participant.stream) {
@@ -70,55 +93,57 @@ const ParticipantTile: React.FC<{
           className="hidden"
         />
       )}
-      {hasVideo ? (
+
+      {/* Base Layer: Avatar with speaking wave & identity (always rendered) */}
+      <div className="flex flex-col items-center justify-center p-4 absolute inset-0 z-0">
+        <div className="relative">
+          <div
+            className={cn(
+              'w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-2 transition-all duration-300',
+              participant.isSpeaking
+                ? 'border-brand ring-4 ring-brand/30 animate-pulse scale-105'
+                : 'border-[#252C2E]'
+            )}
+          >
+            {participant.user?.avatar_url ? (
+              <img
+                src={participant.user.avatar_url}
+                alt={participant.user.display_name}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full bg-[#252C2E] flex items-center justify-center text-brand font-bold text-xl sm:text-2xl">
+                {participant.user?.display_name?.slice(0, 2).toUpperCase() || 'U'}
+              </div>
+            )}
+          </div>
+
+          {/* Speaking indicator dot */}
+          {participant.isSpeaking && (
+            <span className="absolute bottom-0 right-0 w-4 h-4 bg-brand rounded-full ring-2 ring-[#0B0F10] animate-ping" />
+          )}
+        </div>
+
+        <p className="mt-3 text-xs sm:text-sm font-bold text-[#F5F7F7] truncate max-w-[150px]">
+          {participant.user?.display_name || 'Member'}
+        </p>
+        <span className="text-[10px] text-[#9BA5A8]">
+          {participant.isVideoOff ? 'Camera off' : isVideoCall ? 'Connecting video...' : 'Audio feed'}
+        </span>
+      </div>
+
+      {/* Video Layer on top when video is available */}
+      {hasVideo && (
         <video
           ref={setVideoRef}
           autoPlay
           playsInline
           muted
           className={cn(
-            'w-full h-full object-cover',
+            'absolute inset-0 w-full h-full object-cover z-10',
             isSelf ? '-scale-x-100' : ''
           )}
         />
-      ) : (
-        /* Camera Off or Audio Call: Avatar with speaking wave */
-        <div className="flex flex-col items-center justify-center p-4">
-          <div className="relative">
-            <div
-              className={cn(
-                'w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-2 transition-all duration-300',
-                participant.isSpeaking
-                  ? 'border-brand ring-4 ring-brand/30 animate-pulse scale-105'
-                  : 'border-[#252C2E]'
-              )}
-            >
-              {participant.user?.avatar_url ? (
-                <img
-                  src={participant.user.avatar_url}
-                  alt={participant.user.display_name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-[#252C2E] flex items-center justify-center text-brand font-bold text-xl sm:text-2xl">
-                  {participant.user?.display_name?.slice(0, 2).toUpperCase() || 'U'}
-                </div>
-              )}
-            </div>
-
-            {/* Speaking indicator dot */}
-            {participant.isSpeaking && (
-              <span className="absolute bottom-0 right-0 w-4 h-4 bg-brand rounded-full ring-2 ring-[#0B0F10] animate-ping" />
-            )}
-          </div>
-
-          <p className="mt-3 text-xs sm:text-sm font-bold text-[#F5F7F7] truncate max-w-[150px]">
-            {participant.user?.display_name || 'Member'}
-          </p>
-          <span className="text-[10px] text-[#9BA5A8]">
-            {participant.isVideoOff ? 'Camera off' : 'Audio feed'}
-          </span>
-        </div>
       )}
 
       {/* Participant name and mic status pill at bottom-left */}

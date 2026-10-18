@@ -20,6 +20,38 @@ export const CallOverlayModal: React.FC = () => {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Helper to reliably bind MediaStream to HTMLVideoElement across mobile & desktop
+  const attachVideoStream = useCallback((el: HTMLVideoElement | null, stream: MediaStream | null, isMuted = true) => {
+    if (!el) return;
+    if (!stream) {
+      el.srcObject = null;
+      return;
+    }
+    el.muted = isMuted;
+    el.defaultMuted = isMuted;
+    el.playsInline = true;
+    el.setAttribute('playsinline', 'true');
+    el.setAttribute('webkit-playsinline', 'true');
+
+    if (el.srcObject !== stream) {
+      el.srcObject = stream;
+    }
+
+    const tryPlay = () => {
+      el.play().catch((err) => {
+        console.warn('Video play deferred/interrupted:', err);
+      });
+    };
+
+    if (el.readyState >= 2) {
+      tryPlay();
+    } else {
+      el.onloadedmetadata = () => {
+        tryPlay();
+      };
+    }
+  }, []);
+
   // Callback ref for remote audio ensuring immediate and continuous voice playback
   const setRemoteAudio = useCallback(
     (el: HTMLAudioElement | null) => {
@@ -38,48 +70,32 @@ export const CallOverlayModal: React.FC = () => {
   const setLocalVideo = useCallback(
     (el: HTMLVideoElement | null) => {
       localVideoRef.current = el;
-      if (el && activeCall?.localStream) {
-        if (el.srcObject !== activeCall.localStream) {
-          el.srcObject = activeCall.localStream;
-        }
-        el.play().catch(() => {});
-      }
+      attachVideoStream(el, activeCall?.localStream || null, true);
     },
-    [activeCall?.localStream]
+    [activeCall?.localStream, attachVideoStream]
   );
 
   // Callback ref for remote video ensuring immediate stream binding on mount
   const setRemoteVideo = useCallback(
     (el: HTMLVideoElement | null) => {
       remoteVideoRef.current = el;
-      if (el && activeCall?.remoteStream) {
-        if (el.srcObject !== activeCall.remoteStream) {
-          el.srcObject = activeCall.remoteStream;
-        }
-        el.play().catch(() => {});
-      }
+      attachVideoStream(el, activeCall?.remoteStream || null, true);
     },
-    [activeCall?.remoteStream]
+    [activeCall?.remoteStream, attachVideoStream]
   );
 
   // Keep streams attached if they update or call state transitions
   useEffect(() => {
     if (localVideoRef.current && activeCall?.localStream) {
-      if (localVideoRef.current.srcObject !== activeCall.localStream) {
-        localVideoRef.current.srcObject = activeCall.localStream;
-      }
-      localVideoRef.current.play().catch(() => {});
+      attachVideoStream(localVideoRef.current, activeCall.localStream, true);
     }
-  }, [activeCall?.localStream, activeCall?.status, activeCall?.isVideoOff]);
+  }, [activeCall?.localStream, activeCall?.status, activeCall?.isVideoOff, attachVideoStream]);
 
   useEffect(() => {
     if (remoteVideoRef.current && activeCall?.remoteStream) {
-      if (remoteVideoRef.current.srcObject !== activeCall.remoteStream) {
-        remoteVideoRef.current.srcObject = activeCall.remoteStream;
-      }
-      remoteVideoRef.current.play().catch(() => {});
+      attachVideoStream(remoteVideoRef.current, activeCall.remoteStream, true);
     }
-  }, [activeCall?.remoteStream, activeCall?.status]);
+  }, [activeCall?.remoteStream, activeCall?.status, attachVideoStream]);
 
   useEffect(() => {
     if (remoteAudioRef.current && activeCall?.remoteStream) {
@@ -141,77 +157,71 @@ export const CallOverlayModal: React.FC = () => {
       {/* Video Call Stream View (Calling or Connected) */}
       {isVideoCallActive ? (
         <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
-          {/* Main View: Connected Remote Video OR Calling Avatar / Remote Ambient Placeholder */}
-          {activeCall.status === 'connected' && hasRemoteVideo ? (
+          {/* Main View: Ambient Avatar & Status Backdrop (Always rendered as base) */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-0">
+            {/* Blurred Ambient Backdrop using remote user's avatar */}
+            <div
+              className="absolute inset-0 bg-cover bg-center blur-3xl opacity-25 scale-125"
+              style={{
+                backgroundImage: `url(${
+                  remoteUser?.avatar_url ||
+                  `https://api.dicebear.com/7.x/avataaars/svg?seed=${remoteUser?.display_name || 'user'}`
+                })`,
+              }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/85 to-[#0B0F10]" />
+
+            <div className="relative z-10 flex flex-col items-center">
+              <div className="relative mb-6">
+                {activeCall.status === 'calling' && (
+                  <div className="w-32 h-32 rounded-full border-4 border-brand/30 call-pulse-ring absolute inset-0 -m-2" />
+                )}
+                <img
+                  src={
+                    remoteUser?.avatar_url ||
+                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${remoteUser?.display_name || 'user'}`
+                  }
+                  alt={remoteUser?.display_name || ''}
+                  className="w-28 h-28 sm:w-36 sm:h-36 rounded-full object-cover border-4 border-brand shadow-2xl relative z-10"
+                />
+              </div>
+
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1 text-white">
+                {remoteUser?.display_name}
+              </h2>
+
+              <p className="text-sm text-[#9BA5A8] font-medium mb-3">
+                {activeCall.status === 'calling'
+                  ? `Calling ${remoteUser?.display_name}...`
+                  : activeCall.status === 'connected'
+                  ? hasRemoteVideo ? 'Video Call' : 'Connecting video...'
+                  : 'Connecting...'}
+              </p>
+
+              {activeCall.status === 'connected' && (
+                <div className="bg-[#151A1C]/90 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 font-mono text-xs text-brand font-bold mb-4">
+                  {formatDuration(activeCall.duration)}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Connected Remote Video Layer on Top */}
+          {activeCall.status === 'connected' && hasRemoteVideo && (
             <video
               ref={setRemoteVideo}
               autoPlay
               playsInline
               muted
-              className="w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover z-10"
             />
-          ) : (
-            <div className="relative w-full h-full flex flex-col items-center justify-center p-6 text-center">
-              {/* Blurred Ambient Backdrop using remote user's avatar */}
-              <div
-                className="absolute inset-0 bg-cover bg-center blur-3xl opacity-20 scale-125"
-                style={{
-                  backgroundImage: `url(${
-                    remoteUser?.avatar_url ||
-                    `https://api.dicebear.com/7.x/avataaars/svg?seed=${remoteUser?.display_name || 'user'}`
-                  })`,
-                }}
-              />
-              <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/85 to-[#0B0F10]" />
-
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="relative mb-6">
-                  {activeCall.status === 'calling' && (
-                    <div className="w-32 h-32 rounded-full border-4 border-brand/30 call-pulse-ring absolute inset-0 -m-2" />
-                  )}
-                  <img
-                    src={
-                      remoteUser?.avatar_url ||
-                      `https://api.dicebear.com/7.x/avataaars/svg?seed=${remoteUser?.display_name || 'user'}`
-                    }
-                    alt={remoteUser?.display_name || ''}
-                    className="w-28 h-28 sm:w-36 sm:h-36 rounded-full object-cover border-4 border-brand shadow-2xl relative z-10"
-                  />
-                </div>
-
-                <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-1 text-white">
-                  {remoteUser?.display_name}
-                </h2>
-
-                <p className="text-sm text-[#9BA5A8] font-medium mb-3">
-                  {activeCall.status === 'calling'
-                    ? `Calling ${remoteUser?.display_name}...`
-                    : activeCall.status === 'connected'
-                    ? 'Video Connected'
-                    : 'Connecting...'}
-                </p>
-
-                {activeCall.status === 'connected' && (
-                  <div className="bg-[#151A1C]/90 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 font-mono text-xs text-brand font-bold mb-4">
-                    {formatDuration(activeCall.duration)}
-                  </div>
-                )}
-              </div>
-            </div>
           )}
 
           {/* Local Camera (Picture-in-Picture) */}
           <div className="absolute top-[calc(1.5rem+env(safe-area-inset-top,0px))] right-4 sm:right-6 w-32 sm:w-44 aspect-[3/4] bg-[#151A1C] rounded-2xl overflow-hidden border-2 border-brand/50 shadow-2xl z-20 flex items-center justify-center group">
-            {hasLocalVideo ? (
-              <video
-                ref={setLocalVideo}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover -scale-x-100"
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center p-3 text-center w-full h-full bg-[#182022]">
+            <div className="w-full h-full relative flex items-center justify-center">
+              {/* Fallback avatar */}
+              <div className="flex flex-col items-center justify-center p-3 text-center w-full h-full bg-[#182022] absolute inset-0 z-0">
                 <img
                   src={
                     currentUser?.avatar_url ||
@@ -222,13 +232,23 @@ export const CallOverlayModal: React.FC = () => {
                 />
                 <div className="flex items-center gap-1 text-[11px] font-semibold text-[#9BA5A8]">
                   <VideoOff size={12} className="text-red-400" />
-                  <span>Camera off</span>
+                  <span>{activeCall.isVideoOff ? 'Camera off' : 'Starting camera...'}</span>
                 </div>
               </div>
-            )}
+
+              {hasLocalVideo && (
+                <video
+                  ref={setLocalVideo}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover -scale-x-100 relative z-10"
+                />
+              )}
+            </div>
 
             {/* Self Badge */}
-            <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-semibold text-white/90 pointer-events-none flex items-center gap-1">
+            <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-md text-[10px] font-semibold text-white/90 pointer-events-none flex items-center gap-1 z-30">
               <span>You</span>
               {activeCall.isMuted && <MicOff size={10} className="text-red-400" />}
             </div>

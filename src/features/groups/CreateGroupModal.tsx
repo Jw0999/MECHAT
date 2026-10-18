@@ -37,7 +37,8 @@ export const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onCl
           .from('profiles')
           .select('*')
           .neq('id', currentUser?.id || '')
-          .limit(20);
+          .order('display_name', { ascending: true })
+          .limit(50);
         setProfiles((data as Profile[]) || []);
       } catch (e) {
         console.error(e);
