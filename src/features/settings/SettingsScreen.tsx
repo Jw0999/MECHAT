@@ -1,20 +1,15 @@
 import React, { useState } from 'react';
 import {
-  Moon,
-  Sun,
-  Laptop,
   User,
   Shield,
   Bell,
   HardDrive,
   LogOut,
   Edit2,
-  Database,
   Check,
   Info,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
-import { useThemeStore, type Theme } from '@/stores/themeStore';
 import { EditProfileModal } from './EditProfileModal';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -33,11 +28,6 @@ export const SettingsScreen: React.FC = () => {
   const settings = useAuthStore((s) => s.settings);
   const updateSettings = useAuthStore((s) => s.updateSettings);
   const logout = useAuthStore((s) => s.logout);
-  const isConfigured = useAuthStore((s) => s.isConfigured);
-  const isDemoMode = useAuthStore((s) => s.isDemoMode);
-
-  const theme = useThemeStore((s) => s.theme);
-  const setTheme = useThemeStore((s) => s.setTheme);
 
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [notificationStatus, setNotificationStatus] = useState<string>(() =>
@@ -122,71 +112,6 @@ export const SettingsScreen: React.FC = () => {
             </button>
           </div>
         )}
-
-        {/* Backend & Deployment Status */}
-        <div className="p-4 rounded-2xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#FFFFFF] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD]">
-          <div className="flex items-center gap-2 mb-2">
-            <Database size={17} className="text-brand" />
-            <h3 className="text-xs font-bold uppercase tracking-wider text-[#9BA5A8]">
-              Backend Connection
-            </h3>
-          </div>
-
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-[#9BA5A8]">Supabase Status</span>
-            <span
-              className={cn(
-                'font-bold px-2.5 py-0.5 rounded-full text-[11px]',
-                isConfigured && !isDemoMode
-                  ? 'bg-green-500/20 text-green-400'
-                  : 'bg-amber-500/20 text-amber-300'
-              )}
-            >
-              {isConfigured && !isDemoMode ? 'Connected (Live)' : 'Demo / Local Mode'}
-            </span>
-          </div>
-
-          {!isConfigured && (
-            <p className="text-[11px] text-[#9BA5A8] mt-2 leading-relaxed">
-              To connect your live Supabase project, paste your <code className="text-brand">VITE_SUPABASE_URL</code> and{' '}
-              <code className="text-brand">VITE_SUPABASE_ANON_KEY</code> into the <code className="text-brand">.env</code> file.
-            </p>
-          )}
-        </div>
-
-        {/* Appearance Section */}
-        <div className="p-4 rounded-2xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#FFFFFF] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD]">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-[#9BA5A8] mb-3">
-            Appearance
-          </h3>
-
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { id: 'dark' as Theme, label: 'Dark', icon: Moon },
-              { id: 'light' as Theme, label: 'Light', icon: Sun },
-              { id: 'system' as Theme, label: 'System', icon: Laptop },
-            ].map((t) => {
-              const Icon = t.icon;
-              const isSelected = theme === t.id;
-
-              return (
-                <button
-                  key={t.id}
-                  onClick={() => setTheme(t.id)}
-                  className={cn(
-                    'flex flex-col items-center justify-center p-3 rounded-2xl border text-xs font-bold transition-all',
-                    isSelected
-                      ? 'bg-brand text-[#0B0F10] border-brand shadow-md'
-                      : 'border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] text-[#9BA5A8] hover:text-[#F5F7F7] dark:hover:text-[#F5F7F7] light:hover:text-[#171B18]'
-                  )}
-                >
-                  <Icon size={18} className="mb-1" />
-                  <span>{t.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
 
         {/* Privacy Section */}
         <div className="p-4 rounded-2xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#FFFFFF] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] space-y-3">

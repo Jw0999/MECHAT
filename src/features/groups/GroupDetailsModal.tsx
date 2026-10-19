@@ -34,6 +34,9 @@ import type { Profile, Message } from '@/types/database.types';
 import { formatDate, formatFileSize } from '@/lib/utils';
 import { toast } from 'sonner';
 
+// Stable empty fallback to prevent Zustand infinite loop re-renders
+const EMPTY_MESSAGES: Message[] = [];
+
 interface GroupDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -46,10 +49,10 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
   conversationId,
 }) => {
   const currentUserId = useAuthStore((s) => s.user?.id);
-  const conversation = useChatStore((s) =>
-    s.conversations.find((c) => c.id === conversationId)
-  );
-  const messages = useChatStore((s) => s.messages[conversationId] || []);
+  const conversations = useChatStore((s) => s.conversations);
+  const messagesMap = useChatStore((s) => s.messages);
+  const conversation = conversations.find((c) => c.id === conversationId);
+  const messages = messagesMap[conversationId] || EMPTY_MESSAGES;
 
   const updateGroupDetails = useChatStore((s) => s.updateGroupDetails);
   const addGroupMembers = useChatStore((s) => s.addGroupMembers);

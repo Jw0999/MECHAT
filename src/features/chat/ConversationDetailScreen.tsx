@@ -280,7 +280,7 @@ export const ConversationDetailScreen: React.FC<ConversationDetailScreenProps> =
       />
 
       {/* WhatsApp-style Group Details Modal */}
-      {isGroup && (
+      {isGroup && isGroupDetailsOpen && (
         <GroupDetailsModal
           isOpen={isGroupDetailsOpen}
           onClose={() => setIsGroupDetailsOpen(false)}
