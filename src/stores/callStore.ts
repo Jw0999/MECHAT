@@ -359,6 +359,8 @@ export const useCallStore = create<CallState>((set, get) => ({
     const callId = `call-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
     let sessionChan: any = null;
+    const pendingLocalCandidates: any[] = [];
+    let isSessionSubscribed = false;
 
     const manager = new WebRTCManager({
       onLocalStream: (stream) => {
@@ -369,12 +371,14 @@ export const useCallStore = create<CallState>((set, get) => ({
       },
       onIceCandidate: (candidate) => {
         if (!isDemo) {
-          if (sessionChan) {
+          if (isSessionSubscribed && sessionChan) {
             sessionChan.send({
               type: 'broadcast',
               event: 'call:ice-candidate',
               payload: { callId, candidate },
             });
+          } else {
+            pendingLocalCandidates.push(candidate);
           }
           if (remoteUser.id) {
             const userChan = supabase.channel(`user-calls:${remoteUser.id}`);
@@ -385,7 +389,7 @@ export const useCallStore = create<CallState>((set, get) => ({
                   event: 'call:ice-candidate',
                   payload: { callId, candidate },
                 });
-                setTimeout(() => supabase.removeChannel(userChan), 2000);
+                setTimeout(() => supabase.removeChannel(userChan), 3000);
               }
             });
           }
@@ -468,7 +472,19 @@ export const useCallStore = create<CallState>((set, get) => ({
             toast.info('Call ended');
             get().endCall();
           })
-          .subscribe();
+          .subscribe((status: string) => {
+            if (status === 'SUBSCRIBED') {
+              isSessionSubscribed = true;
+              while (pendingLocalCandidates.length > 0) {
+                const cand = pendingLocalCandidates.shift();
+                sessionChan.send({
+                  type: 'broadcast',
+                  event: 'call:ice-candidate',
+                  payload: { callId, candidate: cand },
+                });
+              }
+            }
+          });
 
         set({ sessionChannel: sessionChan });
 
@@ -594,6 +610,8 @@ export const useCallStore = create<CallState>((set, get) => ({
     }
 
     let sessionChan: any = null;
+    const pendingLocalCandidates: any[] = [];
+    let isSessionSubscribed = false;
 
     const manager = new WebRTCManager({
       onLocalStream: (stream) => {
@@ -604,12 +622,14 @@ export const useCallStore = create<CallState>((set, get) => ({
       },
       onIceCandidate: (candidate) => {
         if (!isDemo) {
-          if (sessionChan) {
+          if (isSessionSubscribed && sessionChan) {
             sessionChan.send({
               type: 'broadcast',
               event: 'call:ice-candidate',
               payload: { callId: activeCall.callId, candidate },
             });
+          } else {
+            pendingLocalCandidates.push(candidate);
           }
           if (activeCall.remoteUser?.id) {
             const userChan = supabase.channel(`user-calls:${activeCall.remoteUser.id}`);
@@ -620,7 +640,7 @@ export const useCallStore = create<CallState>((set, get) => ({
                   event: 'call:ice-candidate',
                   payload: { callId: activeCall.callId, candidate },
                 });
-                setTimeout(() => supabase.removeChannel(userChan), 2000);
+                setTimeout(() => supabase.removeChannel(userChan), 3000);
               }
             });
           }
@@ -651,7 +671,19 @@ export const useCallStore = create<CallState>((set, get) => ({
           toast.info('Call ended');
           get().endCall();
         })
-        .subscribe();
+        .subscribe((status: string) => {
+          if (status === 'SUBSCRIBED') {
+            isSessionSubscribed = true;
+            while (pendingLocalCandidates.length > 0) {
+              const cand = pendingLocalCandidates.shift();
+              sessionChan.send({
+                type: 'broadcast',
+                event: 'call:ice-candidate',
+                payload: { callId: activeCall.callId, candidate: cand },
+              });
+            }
+          }
+        });
 
       set({ sessionChannel: sessionChan });
     }

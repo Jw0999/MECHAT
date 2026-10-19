@@ -172,28 +172,32 @@ export class WebRTCManager {
       }
 
       this.peerConnection.ontrack = (event) => {
+        if (!this.remoteStream) {
+          this.remoteStream = new MediaStream();
+        }
+
         if (event.streams && event.streams[0]) {
-          this.remoteStream = event.streams[0];
+          event.streams[0].getTracks().forEach((track) => {
+            if (!this.remoteStream!.getTracks().some((t) => t.id === track.id)) {
+              this.remoteStream!.addTrack(track);
+            }
+          });
         } else if (event.track) {
-          if (!this.remoteStream) {
-            this.remoteStream = new MediaStream();
-          }
           if (!this.remoteStream.getTracks().some((t) => t.id === event.track.id)) {
             this.remoteStream.addTrack(event.track);
           }
         }
 
         // Unmute and enable all incoming audio tracks
-        if (this.remoteStream) {
-          this.remoteStream.getAudioTracks().forEach((track) => {
+        this.remoteStream.getAudioTracks().forEach((track) => {
+          track.enabled = true;
+          track.onunmute = () => {
             track.enabled = true;
-          });
-        }
+          };
+        });
 
         if (this.callbacks.onRemoteStream && this.remoteStream) {
-          // Provide fresh MediaStream reference containing tracks so React hooks and callback refs re-bind immediately
-          const streamToNotify = new MediaStream(this.remoteStream.getTracks());
-          this.callbacks.onRemoteStream(streamToNotify);
+          this.callbacks.onRemoteStream(this.remoteStream);
         }
       };
 
@@ -215,6 +219,35 @@ export class WebRTCManager {
     }
   }
 
+  // Wait for STUN / host ICE candidate gathering so candidates are embedded in SDP
+  private waitForIceGathering(timeoutMs = 800): Promise<void> {
+    return new Promise((resolve) => {
+      if (!this.peerConnection || this.peerConnection.iceGatheringState === 'complete') {
+        return resolve();
+      }
+
+      let timeout: any;
+      const checkState = () => {
+        if (!this.peerConnection || this.peerConnection.iceGatheringState === 'complete') {
+          cleanup();
+          resolve();
+        }
+      };
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        this.peerConnection?.removeEventListener('icegatheringstatechange', checkState);
+      };
+
+      timeout = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, timeoutMs);
+
+      this.peerConnection.addEventListener('icegatheringstatechange', checkState);
+    });
+  }
+
   public async createOffer(): Promise<RTCSessionDescriptionInit | null> {
     if (!this.peerConnection) return null;
     const offer = await this.peerConnection.createOffer({
@@ -222,7 +255,13 @@ export class WebRTCManager {
       offerToReceiveVideo: true,
     });
     await this.peerConnection.setLocalDescription(offer);
-    return offer;
+    await this.waitForIceGathering(800);
+    return this.peerConnection.localDescription
+      ? {
+          type: this.peerConnection.localDescription.type,
+          sdp: this.peerConnection.localDescription.sdp,
+        }
+      : offer;
   }
 
   public async createAnswer(): Promise<RTCSessionDescriptionInit | null> {
@@ -232,7 +271,13 @@ export class WebRTCManager {
       offerToReceiveVideo: true,
     });
     await this.peerConnection.setLocalDescription(answer);
-    return answer;
+    await this.waitForIceGathering(800);
+    return this.peerConnection.localDescription
+      ? {
+          type: this.peerConnection.localDescription.type,
+          sdp: this.peerConnection.localDescription.sdp,
+        }
+      : answer;
   }
 
   public async setRemoteDescription(desc: RTCSessionDescriptionInit): Promise<void> {
@@ -416,11 +461,18 @@ export class WebRTCManager {
     const audioTrack = this.createSyntheticAudioTrack();
     const tracks: MediaStreamTrack[] = [];
     if (audioTrack) tracks.push(audioTrack);
-    this.remoteStream = new MediaStream(tracks);
-    if (this.callbacks.onRemoteStream) {
+    this.remoteStream =
+      typeof MediaStream !== 'undefined'
+        ? new MediaStream(tracks)
+        : ({
+            getTracks: () => tracks,
+            getAudioTracks: () => tracks,
+            getVideoTracks: () => [],
+          } as any);
+    if (this.remoteStream && this.callbacks.onRemoteStream) {
       this.callbacks.onRemoteStream(this.remoteStream);
     }
-    return this.remoteStream;
+    return this.remoteStream!;
   }
 
   private createSyntheticAudioTrack(): MediaStreamTrack | null {

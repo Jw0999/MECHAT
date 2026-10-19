@@ -16,46 +16,59 @@ const ParticipantTile: React.FC<{
   const setAudioRef = useCallback(
     (el: HTMLAudioElement | null) => {
       audioRef.current = el;
-      if (el && participant.stream) {
-        if (el.srcObject !== participant.stream) {
-          el.srcObject = participant.stream;
+      if (el) {
+        el.muted = false;
+        el.defaultMuted = false;
+        el.volume = 1.0;
+        if (participant.stream) {
+          participant.stream.getAudioTracks().forEach((track) => {
+            track.enabled = !participant.isMuted;
+          });
+          if (el.srcObject !== participant.stream) {
+            el.srcObject = participant.stream;
+          }
+          el.play().catch((e) => console.warn('Participant audio play error:', e));
         }
-        el.play().catch((e) => console.warn('Participant audio play error:', e));
       }
     },
-    [participant.stream]
+    [participant.stream, participant.isMuted]
   );
 
-  const attachVideoStream = useCallback((el: HTMLVideoElement | null, stream: MediaStream | null) => {
-    if (!el) return;
-    if (!stream) {
-      el.srcObject = null;
-      return;
-    }
-    el.muted = true;
-    el.defaultMuted = true;
-    el.playsInline = true;
-    el.setAttribute('playsinline', 'true');
-    el.setAttribute('webkit-playsinline', 'true');
+  const attachVideoStream = useCallback(
+    (el: HTMLVideoElement | null, stream: MediaStream | null) => {
+      if (!el) return;
+      if (!stream) {
+        el.srcObject = null;
+        return;
+      }
+      // Only self is muted to prevent feedback loop; remote participants must NOT be muted
+      el.muted = isSelf;
+      el.defaultMuted = isSelf;
+      el.volume = isSelf ? 0 : 1.0;
+      el.playsInline = true;
+      el.setAttribute('playsinline', 'true');
+      el.setAttribute('webkit-playsinline', 'true');
 
-    if (el.srcObject !== stream) {
-      el.srcObject = stream;
-    }
+      if (el.srcObject !== stream) {
+        el.srcObject = stream;
+      }
 
-    const playVideo = () => {
-      el.play().catch((err) => {
-        console.warn('Group tile video play deferred:', err);
-      });
-    };
-
-    if (el.readyState >= 2) {
-      playVideo();
-    } else {
-      el.onloadedmetadata = () => {
-        playVideo();
+      const playVideo = () => {
+        el.play().catch((err) => {
+          console.warn('Group tile video play deferred:', err);
+        });
       };
-    }
-  }, []);
+
+      if (el.readyState >= 2) {
+        playVideo();
+      } else {
+        el.onloadedmetadata = () => {
+          playVideo();
+        };
+      }
+    },
+    [isSelf]
+  );
 
   const setVideoRef = useCallback(
     (el: HTMLVideoElement | null) => {
@@ -72,11 +85,18 @@ const ParticipantTile: React.FC<{
   }, [participant.stream, participant.isVideoOff, attachVideoStream]);
 
   useEffect(() => {
-    if (audioRef.current && participant.stream) {
-      if (audioRef.current.srcObject !== participant.stream) {
-        audioRef.current.srcObject = participant.stream;
+    const el = audioRef.current;
+    if (el && participant.stream) {
+      el.muted = false;
+      el.defaultMuted = false;
+      el.volume = 1.0;
+      participant.stream.getAudioTracks().forEach((track) => {
+        track.enabled = !participant.isMuted;
+      });
+      if (el.srcObject !== participant.stream) {
+        el.srcObject = participant.stream;
       }
-      audioRef.current.play().catch(() => {});
+      el.play().catch(() => {});
     }
   }, [participant.stream, participant.isMuted]);
 
@@ -84,13 +104,21 @@ const ParticipantTile: React.FC<{
 
   return (
     <div className="relative w-full h-full min-h-[140px] rounded-3xl overflow-hidden bg-[#151A1C] border border-[#252C2E] flex items-center justify-center shadow-lg group">
-      {/* Dedicated audio element for remote participant voice feed */}
-      {!isSelf && participant.stream && (
+      {/* Dedicated permanent audio element for remote participant voice feed */}
+      {!isSelf && (
         <audio
           ref={setAudioRef}
           autoPlay
           playsInline
-          className="hidden"
+          style={{
+            position: 'fixed',
+            top: -9999,
+            left: -9999,
+            width: 1,
+            height: 1,
+            opacity: 0.01,
+            pointerEvents: 'none',
+          }}
         />
       )}
 
@@ -132,13 +160,13 @@ const ParticipantTile: React.FC<{
         </span>
       </div>
 
-      {/* Video Layer on top when video is available */}
+      {/* Video Layer on top when video is available (Unmuted for remote participants) */}
       {hasVideo && (
         <video
           ref={setVideoRef}
           autoPlay
           playsInline
-          muted
+          muted={isSelf}
           className={cn(
             'absolute inset-0 w-full h-full object-cover z-10',
             isSelf ? '-scale-x-100' : ''
@@ -188,7 +216,18 @@ export const GroupCallModal: React.FC = () => {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#0B0F10] text-[#F5F7F7] select-none animate-fade-in">
+    <div
+      onClick={() => {
+        try {
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioContextClass) {
+            const tempCtx = new AudioContextClass();
+            if (tempCtx.state === 'suspended') tempCtx.resume();
+          }
+        } catch {}
+      }}
+      className="fixed inset-0 z-50 flex flex-col bg-[#0B0F10] text-[#F5F7F7] select-none animate-fade-in"
+    >
       {/* Top Header Bar */}
       <header className="px-4 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] pb-3 flex items-center justify-between border-b border-[#252C2E]/60 bg-[#151A1C]/80 backdrop-blur-xl shrink-0 z-20">
         <div className="flex items-center gap-3 min-w-0">

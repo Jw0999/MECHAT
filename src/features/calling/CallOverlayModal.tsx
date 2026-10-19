@@ -21,7 +21,7 @@ export const CallOverlayModal: React.FC = () => {
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Helper to reliably bind MediaStream to HTMLVideoElement across mobile & desktop
-  const attachVideoStream = useCallback((el: HTMLVideoElement | null, stream: MediaStream | null, isMuted = true) => {
+  const attachVideoStream = useCallback((el: HTMLVideoElement | null, stream: MediaStream | null, isMuted = false) => {
     if (!el) return;
     if (!stream) {
       el.srcObject = null;
@@ -29,6 +29,7 @@ export const CallOverlayModal: React.FC = () => {
     }
     el.muted = isMuted;
     el.defaultMuted = isMuted;
+    el.volume = isMuted ? 0 : 1.0;
     el.playsInline = true;
     el.setAttribute('playsinline', 'true');
     el.setAttribute('webkit-playsinline', 'true');
@@ -56,17 +57,25 @@ export const CallOverlayModal: React.FC = () => {
   const setRemoteAudio = useCallback(
     (el: HTMLAudioElement | null) => {
       remoteAudioRef.current = el;
-      if (el && activeCall?.remoteStream) {
-        if (el.srcObject !== activeCall.remoteStream) {
-          el.srcObject = activeCall.remoteStream;
+      if (el) {
+        el.muted = false;
+        el.defaultMuted = false;
+        el.volume = 1.0;
+        if (activeCall?.remoteStream) {
+          activeCall.remoteStream.getAudioTracks().forEach((track) => {
+            track.enabled = true;
+          });
+          if (el.srcObject !== activeCall.remoteStream) {
+            el.srcObject = activeCall.remoteStream;
+          }
+          el.play().catch((e) => console.warn('Remote audio playback error:', e));
         }
-        el.play().catch((e) => console.warn('Remote audio playback error:', e));
       }
     },
     [activeCall?.remoteStream]
   );
 
-  // Callback ref for local video ensuring immediate stream binding on mount
+  // Callback ref for local video ensuring immediate stream binding on mount (local must be muted to prevent echo)
   const setLocalVideo = useCallback(
     (el: HTMLVideoElement | null) => {
       localVideoRef.current = el;
@@ -75,11 +84,11 @@ export const CallOverlayModal: React.FC = () => {
     [activeCall?.localStream, attachVideoStream]
   );
 
-  // Callback ref for remote video ensuring immediate stream binding on mount
+  // Callback ref for remote video ensuring immediate stream binding on mount (remote MUST NOT be muted)
   const setRemoteVideo = useCallback(
     (el: HTMLVideoElement | null) => {
       remoteVideoRef.current = el;
-      attachVideoStream(el, activeCall?.remoteStream || null, true);
+      attachVideoStream(el, activeCall?.remoteStream || null, false);
     },
     [activeCall?.remoteStream, attachVideoStream]
   );
@@ -93,18 +102,43 @@ export const CallOverlayModal: React.FC = () => {
 
   useEffect(() => {
     if (remoteVideoRef.current && activeCall?.remoteStream) {
-      attachVideoStream(remoteVideoRef.current, activeCall.remoteStream, true);
+      attachVideoStream(remoteVideoRef.current, activeCall.remoteStream, false);
     }
   }, [activeCall?.remoteStream, activeCall?.status, attachVideoStream]);
 
   useEffect(() => {
-    if (remoteAudioRef.current && activeCall?.remoteStream) {
-      if (remoteAudioRef.current.srcObject !== activeCall.remoteStream) {
-        remoteAudioRef.current.srcObject = activeCall.remoteStream;
+    const el = remoteAudioRef.current;
+    if (el && activeCall?.remoteStream) {
+      el.muted = false;
+      el.defaultMuted = false;
+      el.volume = 1.0;
+      activeCall.remoteStream.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+      if (el.srcObject !== activeCall.remoteStream) {
+        el.srcObject = activeCall.remoteStream;
       }
-      remoteAudioRef.current.play().catch(() => {});
+      el.play().catch((e) => console.warn('Remote audio play deferred:', e));
     }
   }, [activeCall?.remoteStream, activeCall?.status]);
+
+  // Global user interaction handler to guarantee mobile browser audio unlock
+  const handleUserInteraction = useCallback(() => {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.muted = false;
+      remoteAudioRef.current.volume = 1.0;
+      if (activeCall?.remoteStream && remoteAudioRef.current.paused) {
+        remoteAudioRef.current.play().catch(() => {});
+      }
+    }
+    if (remoteVideoRef.current && activeCall?.remoteStream) {
+      remoteVideoRef.current.muted = false;
+      remoteVideoRef.current.volume = 1.0;
+      if (remoteVideoRef.current.paused) {
+        remoteVideoRef.current.play().catch(() => {});
+      }
+    }
+  }, [activeCall?.remoteStream]);
 
   // Play ringing chime when incoming (ringing) or outgoing (calling)
   useEffect(() => {
@@ -143,16 +177,26 @@ export const CallOverlayModal: React.FC = () => {
   const isVideoCallActive = isVideo && (activeCall.status === 'connected' || activeCall.status === 'calling');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md animate-fade-in text-[#F5F7F7] select-none">
-      {/* Dedicated audio element ensuring crystal clear voice audio on all devices */}
-      {activeCall.status === 'connected' && activeCall.remoteStream && (
-        <audio
-          ref={setRemoteAudio}
-          autoPlay
-          playsInline
-          className="hidden"
-        />
-      )}
+    <div
+      onClick={handleUserInteraction}
+      onTouchStart={handleUserInteraction}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md animate-fade-in text-[#F5F7F7] select-none"
+    >
+      {/* Dedicated permanent audio element ensuring crystal clear voice audio on all devices */}
+      <audio
+        ref={setRemoteAudio}
+        autoPlay
+        playsInline
+        style={{
+          position: 'fixed',
+          top: -9999,
+          left: -9999,
+          width: 1,
+          height: 1,
+          opacity: 0.01,
+          pointerEvents: 'none',
+        }}
+      />
 
       {/* Video Call Stream View (Calling or Connected) */}
       {isVideoCallActive ? (
@@ -206,13 +250,12 @@ export const CallOverlayModal: React.FC = () => {
             </div>
           </div>
 
-          {/* Connected Remote Video Layer on Top */}
+          {/* Connected Remote Video Layer on Top (Unmuted for clear remote voice) */}
           {activeCall.status === 'connected' && hasRemoteVideo && (
             <video
               ref={setRemoteVideo}
               autoPlay
               playsInline
-              muted
               className="absolute inset-0 w-full h-full object-cover z-10"
             />
           )}
