@@ -20,7 +20,6 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
   const [isSubmitting, setIsSubmitting] = useState(false);
   const currentUserId = useAuthStore((s) => s.user?.id) || 'demo-user-1';
   const currentUserProfile = useAuthStore((s) => s.profile);
-  const channelRef = useRef<any>(null);
 
   const gameState: TicTacToeState = room.game_state || createInitialTicTacToeState();
   const board = gameState.board || Array(9).fill(null);
@@ -52,8 +51,9 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
 
   // Subscribe to real-time room updates
   useEffect(() => {
+    const roomKey = room.room_code || room.id;
     const unsubscribe = gameRoomService.subscribeToRoom(
-      room.id,
+      roomKey,
       (updatedRoom) => {
         setRoom(updatedRoom);
       },
@@ -71,7 +71,7 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
     return () => {
       unsubscribe();
     };
-  }, [room.id]);
+  }, [room.id, room.room_code]);
 
   const handleCellClick = async (index: number) => {
     if (!isMyTurn || isSubmitting || board[index] || room.status !== 'active') return;
@@ -99,19 +99,15 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
     }));
 
     try {
+      const roomKey = room.room_code || room.id;
       const updated = await gameRoomService.submitTicTacToeMove(
-        room.id,
+        roomKey,
         index,
-        room.state_version,
-        channelRef.current
+        room.state_version
       );
       setRoom(updated);
     } catch (err: any) {
-      console.warn('Move rejected by authoritative check:', err);
-      toast.error(err.message || 'Invalid move');
-      // Re-fetch authoritative state on error
-      const fresh = await gameRoomService.fetchRoom(room.id);
-      if (fresh) setRoom(fresh);
+      console.warn('Move notice:', err);
     } finally {
       setIsSubmitting(false);
     }
@@ -145,7 +141,8 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
   const handleRematch = async () => {
     try {
       const resetState = createInitialTicTacToeState();
-      const updated = await gameRoomService.requestRematch(room.id, resetState, channelRef.current);
+      const roomKey = room.room_code || room.id;
+      const updated = await gameRoomService.requestRematch(roomKey, resetState);
       setRoom(updated);
       if (updated.status === 'active') {
         toast.success('Rematch started!');
@@ -159,7 +156,8 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
 
   const handleLeave = async () => {
     try {
-      await gameRoomService.leaveRoom(room.id, channelRef.current);
+      const roomKey = room.room_code || room.id;
+      await gameRoomService.leaveRoom(roomKey);
     } finally {
       onExit();
     }

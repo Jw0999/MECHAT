@@ -35,7 +35,6 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
   const [ballInHandDragging, setBallInHandDragging] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const channelRef = useRef<any>(null);
   const animationFrameRef = useRef<number | null>(null);
   const currentBallsRef = useRef<PoolBallState[]>([]);
   const lastTimeRef = useRef<number>(0);
@@ -81,8 +80,9 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
 
   // Subscribe to real-time room updates
   useEffect(() => {
+    const roomKey = room.room_code || room.id;
     const unsubscribe = gameRoomService.subscribeToRoom(
-      room.id,
+      roomKey,
       (updatedRoom) => {
         setRoom(updatedRoom);
       },
@@ -104,7 +104,7 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
     return () => {
       unsubscribe();
     };
-  }, [room.id]);
+  }, [room.id, room.room_code]);
 
   // Physics & Animation Loop
   const runPhysicsTick = useCallback((timestamp: number) => {
@@ -133,15 +133,14 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
           opponentId
         );
 
+        const roomKey = room.room_code || room.id;
         gameRoomService
-          .submitPoolShot(
-            room.id,
-            { cueAngle: aimAngle, shotPower, stateVersion: room.state_version },
+          .submitPoolSettledState(
+            roomKey,
             evaluation.settledState,
             evaluation.nextTurnUserId,
             evaluation.winnerUserId,
-            room.state_version,
-            channelRef.current
+            room.state_version
           )
           .then((updated) => setRoom(updated))
           .catch((err) => {
@@ -152,7 +151,7 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
     }
 
     animationFrameRef.current = requestAnimationFrame(runPhysicsTick);
-  }, [isSimulating, isMyTurn, aimAngle, shotPower, gameState, currentUserId, opponentId, room.id, room.state_version]);
+  }, [isSimulating, isMyTurn, aimAngle, shotPower, gameState, currentUserId, opponentId, room.id, room.room_code, room.state_version]);
 
   useEffect(() => {
     lastTimeRef.current = 0;
@@ -421,6 +420,13 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
     soundEffects.playMessageSound();
     setIsSimulating(true);
     applyShotToBalls(currentBallsRef.current, aimAngle, shotPower);
+
+    const roomKey = room.room_code || room.id;
+    gameRoomService.broadcastPoolShot(roomKey, {
+      cueAngle: aimAngle,
+      shotPower,
+      stateVersion: room.state_version,
+    });
   };
 
   const handleCopyCode = useCallback(() => {
@@ -450,8 +456,9 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
 
   const handleRematch = async () => {
     try {
+      const roomKey = room.room_code || room.id;
       const resetState = createInitialPoolGameState();
-      const updated = await gameRoomService.requestRematch(room.id, resetState, channelRef.current);
+      const updated = await gameRoomService.requestRematch(roomKey, resetState);
       setRoom(updated);
       currentBallsRef.current = JSON.parse(JSON.stringify(resetState.balls));
       drawTable();
@@ -467,7 +474,8 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
 
   const handleLeave = async () => {
     try {
-      await gameRoomService.leaveRoom(room.id, channelRef.current);
+      const roomKey = room.room_code || room.id;
+      await gameRoomService.leaveRoom(roomKey);
     } finally {
       onExit();
     }
