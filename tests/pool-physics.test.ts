@@ -9,6 +9,8 @@ import {
   TABLE_WIDTH,
   TABLE_HEIGHT,
   PLAYFIELD,
+  isLegalTargetBall,
+  getSuitProgress,
 } from '../src/features/games/pool/poolPhysics';
 
 describe('8-Ball Pool Physics & Rules Engine', () => {
@@ -145,5 +147,29 @@ describe('8-Ball Pool Physics & Rules Engine', () => {
 
     expect(evalResult.winnerUserId).toBe('user-a');
     expect(evalResult.settledState.winnerReason).toContain('win the match');
+  });
+
+  it('strictly validates legal target balls preventing tapping opponent balls', () => {
+    const balls = createInitialPoolBalls();
+    const solidBall = balls.find((b) => b.id === 1)!;
+    const stripeBall = balls.find((b) => b.id === 9)!;
+    const eightBall = balls.find((b) => b.id === 8)!;
+
+    // When assigned to solids:
+    // Solid is legal, stripe is illegal, 8-ball is illegal while solids remain
+    expect(isLegalTargetBall(solidBall, 'solids', balls)).toBe(true);
+    expect(isLegalTargetBall(stripeBall, 'solids', balls)).toBe(false);
+    expect(isLegalTargetBall(eightBall, 'solids', balls)).toBe(false);
+
+    // When all solids cleared:
+    balls.forEach((b) => {
+      if (b.type === 'solid') b.isPocketed = true;
+    });
+    // 8-ball is now legal to pocket and win!
+    expect(isLegalTargetBall(eightBall, 'solids', balls)).toBe(true);
+
+    const progress = getSuitProgress(balls, 'solid');
+    expect(progress.isCleared).toBe(true);
+    expect(progress.remaining).toBe(0);
   });
 });

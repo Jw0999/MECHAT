@@ -1,10 +1,12 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
-import type { GameRoom, GameType, PoolShotCommand, PoolGameState } from '@/types/games.types';
+import type { GameRoom, GameType, PoolShotCommand, PoolGameState, WhotShape, WhotGameState, TriviaGameState } from '@/types/games.types';
 import type { Profile } from '@/types/database.types';
 import { checkWinner } from '../tic-tac-toe/ticTacToeRules';
 import { createInitialPoolGameState } from '../pool/poolPhysics';
 import { createInitialTicTacToeState } from '../tic-tac-toe/ticTacToeRules';
+import { applyWhotMove, applyWhotDraw } from '../whot/whotRules';
+import { submitTriviaAnswer as calcTriviaAnswer, advanceTriviaQuestion as calcNextTrivia } from '../trivia/triviaRules';
 
 // Cryptographically secure random room code generation (excludes 0, O, 1, I for clarity)
 const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -44,7 +46,12 @@ const isSchemaError = (err: any): boolean => {
 };
 
 export const gameRoomService = {
-  createRoom: async (gameType: GameType, initialState: any): Promise<GameRoom> => {
+  createRoom: async (
+    gameType: GameType,
+    initialState: any,
+    conversationId?: string | null,
+    players?: { user_id: string; profile: Profile }[]
+  ): Promise<GameRoom> => {
     const { user, profile, isDemoMode } = useAuthStore.getState();
     const currentUserId = user?.id || 'demo-user-1';
     const roomCode = generateRoomCode();
@@ -53,9 +60,29 @@ export const gameRoomService = {
       id: roomCode,
       room_code: roomCode,
       game_type: gameType,
-      status: 'waiting',
+      status: gameType === 'whot' || gameType === 'trivia' ? 'active' : 'waiting',
       host_user_id: currentUserId,
       guest_user_id: null,
+      conversation_id: conversationId || null,
+      players: players || [
+        {
+          user_id: currentUserId,
+          profile: profile || {
+            id: currentUserId,
+            display_name: 'You',
+            username: 'you',
+            avatar_url: '',
+            bio: '',
+            online_status: 'online',
+            last_seen: '',
+            privacy_online: true,
+            privacy_last_seen: true,
+            privacy_read_receipts: true,
+            created_at: '',
+            updated_at: '',
+          },
+        },
+      ],
       current_turn_user_id: currentUserId,
       game_state: initialState,
       state_version: 1,
@@ -440,6 +467,135 @@ export const gameRoomService = {
     return updated;
   },
 
+  submitWhotMove: async (
+    roomIdentifier: string,
+    cardId: string,
+    chosenShape?: WhotShape
+  ): Promise<GameRoom> => {
+    const room = roomStateCache.get(roomIdentifier) || (await gameRoomService.fetchRoom(roomIdentifier));
+    if (!room) throw new Error('Room not found');
+    const currentUserId = useAuthStore.getState().user?.id || 'demo-user-1';
+
+    const currentWhotState = room.game_state as WhotGameState;
+    const nextWhotState = applyWhotMove(currentWhotState, currentUserId, cardId, chosenShape);
+
+    const updated: GameRoom = {
+      ...room,
+      game_state: nextWhotState,
+      current_turn_user_id: nextWhotState.winnerUserId ? null : nextWhotState.currentTurnUserId,
+      winner_user_id: nextWhotState.winnerUserId,
+      status: nextWhotState.winnerUserId ? 'completed' : 'active',
+      state_version: room.state_version + 1,
+    };
+
+    roomStateCache.set(room.room_code, updated);
+    roomStateCache.set(room.id, updated);
+
+    const channel = activeChannels.get(room.room_code) || activeChannels.get(room.id);
+    if (channel) {
+      channel.send({
+        type: 'broadcast',
+        event: 'whot:play-card',
+        payload: { updatedRoom: updated },
+      });
+    }
+
+    return updated;
+  },
+
+  submitWhotDraw: async (roomIdentifier: string): Promise<GameRoom> => {
+    const room = roomStateCache.get(roomIdentifier) || (await gameRoomService.fetchRoom(roomIdentifier));
+    if (!room) throw new Error('Room not found');
+    const currentUserId = useAuthStore.getState().user?.id || 'demo-user-1';
+
+    const currentWhotState = room.game_state as WhotGameState;
+    const nextWhotState = applyWhotDraw(currentWhotState, currentUserId);
+
+    const updated: GameRoom = {
+      ...room,
+      game_state: nextWhotState,
+      current_turn_user_id: nextWhotState.currentTurnUserId,
+      state_version: room.state_version + 1,
+    };
+
+    roomStateCache.set(room.room_code, updated);
+    roomStateCache.set(room.id, updated);
+
+    const channel = activeChannels.get(room.room_code) || activeChannels.get(room.id);
+    if (channel) {
+      channel.send({
+        type: 'broadcast',
+        event: 'whot:draw-card',
+        payload: { updatedRoom: updated },
+      });
+    }
+
+    return updated;
+  },
+
+  submitTriviaAnswer: async (
+    roomIdentifier: string,
+    optionIndex: number,
+    timeTakenMs: number
+  ): Promise<GameRoom> => {
+    const room = roomStateCache.get(roomIdentifier) || (await gameRoomService.fetchRoom(roomIdentifier));
+    if (!room) throw new Error('Room not found');
+    const currentUserId = useAuthStore.getState().user?.id || 'demo-user-1';
+
+    const currentTriviaState = room.game_state as TriviaGameState;
+    const nextTriviaState = calcTriviaAnswer(currentTriviaState, currentUserId, optionIndex, timeTakenMs);
+
+    const updated: GameRoom = {
+      ...room,
+      game_state: nextTriviaState,
+      state_version: room.state_version + 1,
+    };
+
+    roomStateCache.set(room.room_code, updated);
+    roomStateCache.set(room.id, updated);
+
+    const channel = activeChannels.get(room.room_code) || activeChannels.get(room.id);
+    if (channel) {
+      channel.send({
+        type: 'broadcast',
+        event: 'trivia:submit-answer',
+        payload: { updatedRoom: updated },
+      });
+    }
+
+    return updated;
+  },
+
+  advanceTriviaQuestion: async (roomIdentifier: string): Promise<GameRoom> => {
+    const room = roomStateCache.get(roomIdentifier) || (await gameRoomService.fetchRoom(roomIdentifier));
+    if (!room) throw new Error('Room not found');
+
+    const currentTriviaState = room.game_state as TriviaGameState;
+    const nextTriviaState = calcNextTrivia(currentTriviaState);
+
+    const updated: GameRoom = {
+      ...room,
+      game_state: nextTriviaState,
+      status: nextTriviaState.completed ? 'completed' : 'active',
+      winner_user_id: nextTriviaState.winnerUserId,
+      state_version: room.state_version + 1,
+    };
+
+    roomStateCache.set(room.room_code, updated);
+    roomStateCache.set(room.id, updated);
+
+    const channel = activeChannels.get(room.room_code) || activeChannels.get(room.id);
+    if (channel) {
+      channel.send({
+        type: 'broadcast',
+        event: 'trivia:next-question',
+        payload: { updatedRoom: updated },
+      });
+    }
+
+    return updated;
+  },
+
   leaveRoom: async (roomIdentifier: string): Promise<void> => {
     const channel = activeChannels.get(roomIdentifier);
     if (channel) {
@@ -541,6 +697,46 @@ export const gameRoomService = {
         }
         if (onBroadcastEvent) {
           onBroadcastEvent('game:rematch', payload.payload);
+        }
+      })
+      .on('broadcast', { event: 'whot:play-card' }, (payload) => {
+        const updatedRoom = payload.payload?.updatedRoom;
+        if (updatedRoom) {
+          roomStateCache.set(roomIdentifier, updatedRoom);
+          onRoomUpdated(updatedRoom);
+        }
+        if (onBroadcastEvent) {
+          onBroadcastEvent('whot:play-card', payload.payload);
+        }
+      })
+      .on('broadcast', { event: 'whot:draw-card' }, (payload) => {
+        const updatedRoom = payload.payload?.updatedRoom;
+        if (updatedRoom) {
+          roomStateCache.set(roomIdentifier, updatedRoom);
+          onRoomUpdated(updatedRoom);
+        }
+        if (onBroadcastEvent) {
+          onBroadcastEvent('whot:draw-card', payload.payload);
+        }
+      })
+      .on('broadcast', { event: 'trivia:submit-answer' }, (payload) => {
+        const updatedRoom = payload.payload?.updatedRoom;
+        if (updatedRoom) {
+          roomStateCache.set(roomIdentifier, updatedRoom);
+          onRoomUpdated(updatedRoom);
+        }
+        if (onBroadcastEvent) {
+          onBroadcastEvent('trivia:submit-answer', payload.payload);
+        }
+      })
+      .on('broadcast', { event: 'trivia:next-question' }, (payload) => {
+        const updatedRoom = payload.payload?.updatedRoom;
+        if (updatedRoom) {
+          roomStateCache.set(roomIdentifier, updatedRoom);
+          onRoomUpdated(updatedRoom);
+        }
+        if (onBroadcastEvent) {
+          onBroadcastEvent('trivia:next-question', payload.payload);
         }
       })
       .on('broadcast', { event: 'game:leave' }, (payload) => {

@@ -15,6 +15,8 @@ import {
   stepPhysics,
   isTableStationary,
   evaluatePoolShot,
+  isLegalTargetBall,
+  getSuitProgress,
 } from './poolPhysics';
 import type { GameRoom, PoolGameState, PoolBallState } from '@/types/games.types';
 import { cn, getInitials } from '@/lib/utils';
@@ -46,9 +48,10 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
     ? room.game_state
     : createInitialPoolGameState();
 
-  // Sync ref with state
+  // Sync ref with state and refresh canvas
   useEffect(() => {
     currentBallsRef.current = JSON.parse(JSON.stringify(gameState.balls));
+    drawTable();
   }, [gameState.balls]);
 
   const isHost = room.host_user_id === currentUserId;
@@ -58,6 +61,11 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
 
   const myGroup = gameState.assignedGroups?.[currentUserId];
   const opponentGroup = gameState.assignedGroups?.[opponentId];
+
+  const solidProgress = getSuitProgress(currentBallsRef.current, 'solid');
+  const stripeProgress = getSuitProgress(currentBallsRef.current, 'stripe');
+  const myProgress = myGroup === 'solids' ? solidProgress : myGroup === 'stripes' ? stripeProgress : null;
+  const oppProgress = opponentGroup === 'solids' ? solidProgress : opponentGroup === 'stripes' ? stripeProgress : null;
 
   const isWinner = room.winner_user_id === currentUserId;
   const isLoser = room.winner_user_id && room.winner_user_id !== currentUserId;
@@ -352,6 +360,22 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
         ctx.textBaseline = 'middle';
         ctx.fillText(ball.number.toString(), ball.x, ball.y);
       }
+
+      // Draw clear glowing halo around legal target balls on player's turn
+      if (isMyTurn && !isSimulating && ball.id > 0) {
+        const legal = isLegalTargetBall(ball, myGroup, balls);
+        if (legal) {
+          ctx.save();
+          ctx.strokeStyle = ball.id === 8 ? '#f59e0b' : '#10b981';
+          ctx.lineWidth = 2.5;
+          ctx.shadowColor = ball.id === 8 ? 'rgba(245, 158, 11, 0.9)' : 'rgba(16, 185, 129, 0.9)';
+          ctx.shadowBlur = 8;
+          ctx.beginPath();
+          ctx.arc(ball.x, ball.y, BALL_RADIUS + 3.5, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
     });
   };
 
@@ -378,9 +402,38 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
       return;
     }
 
+    // Check if player clicked directly on any ball on the table
+    const clickedBall = currentBallsRef.current.find(
+      (b) => !b.isPocketed && Math.hypot(b.x - px, b.y - py) <= BALL_RADIUS * 2.2
+    );
+
+    if (clickedBall && clickedBall.id !== 0) {
+      const legal = isLegalTargetBall(clickedBall, myGroup, currentBallsRef.current);
+      if (!legal) {
+        soundEffects.playMessageSound();
+        const mySuitName =
+          myGroup === 'solids'
+            ? 'Solids (1-7)'
+            : myGroup === 'stripes'
+            ? 'Stripes (9-15)'
+            : 'open balls (not 8-ball yet)';
+        const oppSuitName = myGroup === 'solids' ? 'Stripes (9-15)' : 'Solids (1-7)';
+        toast.error(`🚫 Cannot target that ball! That is your opponent's ball (${oppSuitName}). Your target: ${mySuitName}`);
+        return;
+      } else {
+        // Tapped player's legal ball -> Auto-align cue stick aiming directly at it!
+        const angle = Math.atan2(clickedBall.y - cueBall.y, clickedBall.x - cueBall.x);
+        setAimAngle(angle);
+        drawTable();
+        toast.info(`Targeting ${clickedBall.type} #${clickedBall.number}`, { duration: 1200 });
+        return;
+      }
+    }
+
     setIsAiming(true);
     const angle = Math.atan2(py - cueBall.y, px - cueBall.x);
     setAimAngle(angle);
+    drawTable();
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -566,12 +619,15 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
                 <p className="text-xs font-bold truncate">
                   {currentUserProfile?.display_name || 'You'}
                 </p>
-                <div className="flex items-center gap-1.5 mt-0.5">
+                <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                   <span className="text-[10px] font-semibold text-zinc-400 uppercase">
-                    {myGroup ? myGroup : 'Suit Open'}
+                    {myGroup ? `${myGroup} (${myProgress ? myProgress.pocketed : 0}/7)` : 'Suit Open'}
                   </span>
                   {isMyTurn && (
                     <span className="text-[10px] font-semibold text-brand animate-pulse">Your Turn</span>
+                  )}
+                  {myProgress?.isCleared && (
+                    <span className="text-[10px] font-bold text-amber-400 animate-pulse">★ 8-Ball Ready!</span>
                   )}
                 </div>
               </div>
@@ -593,23 +649,40 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
                 <p className="text-xs font-bold truncate">
                   {opponentProfile?.display_name || 'Opponent'}
                 </p>
-                <div className="flex items-center gap-1.5 mt-0.5">
+                <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                   <span className="text-[10px] font-semibold text-zinc-400 uppercase">
-                    {opponentGroup ? opponentGroup : 'Suit Open'}
+                    {opponentGroup ? `${opponentGroup} (${oppProgress ? oppProgress.pocketed : 0}/7)` : 'Suit Open'}
                   </span>
                   {!isMyTurn && room.status === 'active' && (
                     <span className="text-[10px] font-semibold text-zinc-400">Aiming...</span>
+                  )}
+                  {oppProgress?.isCleared && (
+                    <span className="text-[10px] font-bold text-amber-400 animate-pulse">★ 8-Ball Ready!</span>
                   )}
                 </div>
               </div>
             </div>
           </div>
 
+          {/* Status & Objective Banner */}
+          <div className="w-full max-w-2xl px-3 py-1.5 mb-2 rounded-xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#E9EDE8] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] flex items-center justify-between text-xs">
+            <span className="text-[#9BA5A8] truncate pr-2">
+              {!myGroup
+                ? '🎱 Open Table: Pocket any solid or stripe ball to claim your suit'
+                : myProgress?.isCleared
+                ? '★ 8-BALL UNLOCKED: Pocket the 8-Ball now to WIN the match!'
+                : `Target: Pocket all your ${myGroup} (${myProgress ? 7 - myProgress.pocketed : 7} remaining)`}
+            </span>
+            <span className={cn('font-bold shrink-0', isMyTurn ? 'text-brand' : 'text-zinc-500')}>
+              {isMyTurn ? '● Your Turn' : "○ Opponent's Turn"}
+            </span>
+          </div>
+
           {/* Foul / Ball-in-Hand Alert */}
           {gameState.cueBallInHand && isMyTurn && (
-            <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium">
+            <div className="w-full max-w-2xl flex items-center gap-2 px-3 py-1.5 mb-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-medium">
               <AlertCircle size={14} />
-              <span>Ball-in-hand: Drag cue ball anywhere on table to place it.</span>
+              <span>Ball-in-hand: Tap anywhere on table to reposition cue ball.</span>
             </div>
           )}
 

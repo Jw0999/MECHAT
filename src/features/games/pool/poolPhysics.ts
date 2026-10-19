@@ -145,35 +145,48 @@ export const stepPhysics = (balls: PoolBallState[], dt: number): void => {
       ball.x += ball.vx * subDt;
       ball.y += ball.vy * subDt;
 
-      // Check pockets
+      // Check pockets & suction funnel
+      let nearPocket = false;
       for (const pocket of POCKETS) {
         const dx = ball.x - pocket.x;
         const dy = ball.y - pocket.y;
-        if (dx * dx + dy * dy <= pocket.radius * pocket.radius) {
+        const dist = Math.hypot(dx, dy);
+
+        // Pocket drop
+        if (dist <= pocket.radius * 1.1) {
           ball.isPocketed = true;
           ball.vx = 0;
           ball.vy = 0;
+          nearPocket = true;
           break;
+        } else if (dist < pocket.radius * 1.6) {
+          // Pocket funnel attraction pull
+          const pull = (1 - dist / (pocket.radius * 1.6)) * 260;
+          ball.vx -= (dx / dist) * pull * subDt;
+          ball.vy -= (dy / dist) * pull * subDt;
+          nearPocket = true;
         }
       }
 
       if (ball.isPocketed) continue;
 
-      // Cushion collisions
-      if (ball.x < PLAYFIELD.left) {
-        ball.x = PLAYFIELD.left;
-        ball.vx = -ball.vx * restitution;
-      } else if (ball.x > PLAYFIELD.right) {
-        ball.x = PLAYFIELD.right;
-        ball.vx = -ball.vx * restitution;
-      }
+      // Cushion collisions (only when not funneling into a pocket)
+      if (!nearPocket) {
+        if (ball.x < PLAYFIELD.left) {
+          ball.x = PLAYFIELD.left;
+          ball.vx = -ball.vx * restitution;
+        } else if (ball.x > PLAYFIELD.right) {
+          ball.x = PLAYFIELD.right;
+          ball.vx = -ball.vx * restitution;
+        }
 
-      if (ball.y < PLAYFIELD.top) {
-        ball.y = PLAYFIELD.top;
-        ball.vy = -ball.vy * restitution;
-      } else if (ball.y > PLAYFIELD.bottom) {
-        ball.y = PLAYFIELD.bottom;
-        ball.vy = -ball.vy * restitution;
+        if (ball.y < PLAYFIELD.top) {
+          ball.y = PLAYFIELD.top;
+          ball.vy = -ball.vy * restitution;
+        } else if (ball.y > PLAYFIELD.bottom) {
+          ball.y = PLAYFIELD.bottom;
+          ball.vy = -ball.vy * restitution;
+        }
       }
 
       // Rolling friction
@@ -341,4 +354,34 @@ export const evaluatePoolShot = (
     winnerUserId,
     foulMessage,
   };
+};
+
+export const isLegalTargetBall = (
+  ball: PoolBallState,
+  myGroup: BallGroup | undefined,
+  allBalls: PoolBallState[]
+): boolean => {
+  if (ball.isPocketed || ball.id === 0) return false;
+
+  // Open table: any ball 1-15 except 8-ball is a legal target
+  if (!myGroup) {
+    return ball.id !== 8;
+  }
+
+  const mySuitType = myGroup === 'solids' ? 'solid' : 'stripe';
+  const remainingMySuit = allBalls.filter((b) => b.type === mySuitType && !b.isPocketed).length;
+
+  if (remainingMySuit > 0) {
+    return ball.type === mySuitType;
+  }
+
+  // All suit balls pocketed! 8-ball is now legal to win the game
+  return ball.id === 8;
+};
+
+export const getSuitProgress = (balls: PoolBallState[], suit: 'solid' | 'stripe') => {
+  const suitBalls = balls.filter((b) => b.type === suit);
+  const pocketed = suitBalls.filter((b) => b.isPocketed).length;
+  const remaining = suitBalls.length - pocketed;
+  return { total: suitBalls.length, pocketed, remaining, isCleared: remaining === 0 };
 };
