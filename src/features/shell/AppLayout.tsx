@@ -8,6 +8,7 @@ import { ConversationDetailScreen } from '@/features/chat/ConversationDetailScre
 import { CallingScreen } from '@/features/calling/CallingScreen';
 import { GroupsScreen } from '@/features/groups/GroupsScreen';
 import { SettingsScreen } from '@/features/settings/SettingsScreen';
+import { GamesHomeScreen } from '@/features/games/GamesHomeScreen';
 import { CallOverlayModal } from '@/features/calling/CallOverlayModal';
 import { GroupCallModal } from '@/features/calling/GroupCallModal';
 import { useChatStore } from '@/stores/chatStore';
@@ -107,51 +108,60 @@ export const AppLayout: React.FC = () => {
                   onSelectConversation={(id) => setActiveConversationId(id)}
                 />
               )}
+              {currentTab === 'games' && <GamesHomeScreen />}
               {currentTab === 'settings' && <SettingsScreen />}
             </div>
           )}
         </div>
 
-        {/* Desktop View: Split 2-Column or 3-Column Layout */}
+        {/* Desktop View: Full-width for Games, Split 2-Column for Chats/Calls/Groups/Settings */}
         <div className="hidden md:flex flex-1 h-full w-full">
-          {/* Middle Pane: Active Tab List */}
-          <div className="w-80 lg:w-96 h-full border-r border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] shrink-0">
-            {currentTab === 'calling' && <CallingScreen />}
-            {currentTab === 'chat' && (
-              <ChatListScreen
-                onSelectConversation={(id) => setActiveConversationId(id)}
-                onOpenNewGroup={() => setCurrentTab('groups')}
-              />
-            )}
-            {currentTab === 'groups' && (
-              <GroupsScreen
-                onSelectConversation={(id) => setActiveConversationId(id)}
-              />
-            )}
-            {currentTab === 'settings' && <SettingsScreen />}
-          </div>
-
-          {/* Right Pane: Active Chat Conversation or Empty Placeholder */}
-          <div className="flex-1 h-full flex flex-col bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5]">
-            {activeConversationId ? (
-              <ConversationDetailScreen
-                conversationId={activeConversationId}
-                onBack={() => setActiveConversationId(null)}
-              />
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none">
-                <div className="w-16 h-16 rounded-3xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#E9EDE8] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] flex items-center justify-center text-brand mb-4 shadow-xl">
-                  <MessageCircle size={32} />
-                </div>
-                <h3 className="text-lg font-bold text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] mb-1">
-                  Select a Conversation
-                </h3>
-                <p className="text-xs text-[#9BA5A8] max-w-xs">
-                  Choose a chat from the list or start a new conversation to begin messaging.
-                </p>
+          {currentTab === 'games' ? (
+            <div className="flex-1 h-full overflow-hidden">
+              <GamesHomeScreen />
+            </div>
+          ) : (
+            <>
+              {/* Middle Pane: Active Tab List */}
+              <div className="w-80 lg:w-96 h-full border-r border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] shrink-0">
+                {currentTab === 'calling' && <CallingScreen />}
+                {currentTab === 'chat' && (
+                  <ChatListScreen
+                    onSelectConversation={(id) => setActiveConversationId(id)}
+                    onOpenNewGroup={() => setCurrentTab('groups')}
+                  />
+                )}
+                {currentTab === 'groups' && (
+                  <GroupsScreen
+                    onSelectConversation={(id) => setActiveConversationId(id)}
+                  />
+                )}
+                {currentTab === 'settings' && <SettingsScreen />}
               </div>
-            )}
-          </div>
+
+              {/* Right Pane: Active Chat Conversation or Empty Placeholder */}
+              <div className="flex-1 h-full flex flex-col bg-[#0B0F10] dark:bg-[#0B0F10] light:bg-[#F7F9F5]">
+                {activeConversationId ? (
+                  <ConversationDetailScreen
+                    conversationId={activeConversationId}
+                    onBack={() => setActiveConversationId(null)}
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center select-none">
+                    <div className="w-16 h-16 rounded-3xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#E9EDE8] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] flex items-center justify-center text-brand mb-4 shadow-xl">
+                      <MessageCircle size={32} />
+                    </div>
+                    <h3 className="text-lg font-bold text-[#F5F7F7] dark:text-[#F5F7F7] light:text-[#171B18] mb-1">
+                      Select a Conversation
+                    </h3>
+                    <p className="text-xs text-[#9BA5A8] max-w-xs">
+                      Choose a chat from the list or start a new conversation to begin messaging.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </main>
 

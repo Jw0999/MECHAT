@@ -1,5 +1,5 @@
 import React from 'react';
-import { Phone, MessageCircle, Users, Settings } from 'lucide-react';
+import { Phone, MessageCircle, Users, Gamepad2, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useChatStore } from '@/stores/chatStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -19,6 +19,7 @@ export const DesktopSidebar: React.FC<DesktopSidebarProps> = ({ currentTab, onSe
     { id: 'calling' as NavTab, label: 'Calling', icon: Phone, badge: 0 },
     { id: 'chat' as NavTab, label: 'Chat', icon: MessageCircle, badge: totalUnread },
     { id: 'groups' as NavTab, label: 'Groups', icon: Users, badge: 0 },
+    { id: 'games' as NavTab, label: 'Games', icon: Gamepad2, badge: 0 },
     { id: 'settings' as NavTab, label: 'Settings', icon: Settings, badge: 0 },
   ];
 

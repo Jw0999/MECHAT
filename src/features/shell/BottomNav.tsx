@@ -1,9 +1,9 @@
 import React from 'react';
-import { Phone, MessageCircle, Users, Settings } from 'lucide-react';
+import { Phone, MessageCircle, Users, Gamepad2, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useChatStore } from '@/stores/chatStore';
 
-export type NavTab = 'calling' | 'chat' | 'groups' | 'settings';
+export type NavTab = 'calling' | 'chat' | 'groups' | 'games' | 'settings';
 
 interface BottomNavProps {
   currentTab: NavTab;
@@ -36,6 +36,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onSelectTab })
       badge: 0,
     },
     {
+      id: 'games' as NavTab,
+      label: 'Games',
+      icon: Gamepad2,
+      badge: 0,
+    },
+    {
       id: 'settings' as NavTab,
       label: 'Settings',
       icon: Settings,
@@ -44,8 +50,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onSelectTab })
   ];
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 pb-[max(10px,env(safe-area-inset-bottom,8px))] pt-2 px-3 glass-bottom-bar border-t border-[#252C2E]/60 dark:border-[#252C2E]/60 light:border-[#E0E6DD]/80 transition-colors">
-      <div className="grid grid-cols-4 items-center justify-around max-w-md mx-auto">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 pb-[max(10px,env(safe-area-inset-bottom,8px))] pt-2 px-2 glass-bottom-bar border-t border-[#252C2E]/60 dark:border-[#252C2E]/60 light:border-[#E0E6DD]/80 transition-colors">
+      <div className="grid grid-cols-5 items-center justify-around max-w-md mx-auto">
         {navItems.map((item) => {
           const isActive = currentTab === item.id;
           const Icon = item.icon;
