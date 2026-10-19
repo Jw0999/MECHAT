@@ -101,13 +101,32 @@ export function isUrl(str?: string | null): boolean {
   return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('blob:');
 }
 
+export function isVideoUrl(str?: string | null): boolean {
+  if (!str || typeof str !== 'string') return false;
+  return /\.(mp4|webm|mov|m4v|mkv|3gp)(\?.*)?$/i.test(str.trim());
+}
+
+export function isVideoMessage(message?: {
+  content?: string;
+  message_type?: string;
+  metadata?: any;
+} | null): boolean {
+  if (!message) return false;
+  const mime = message.metadata?.mime_type;
+  if (typeof mime === 'string' && mime.startsWith('video/')) return true;
+  if (isVideoUrl(message.metadata?.file_url)) return true;
+  if (isVideoUrl(message.metadata?.file_name)) return true;
+  if (isVideoUrl(message.content)) return true;
+  return false;
+}
+
 export function isMediaUrl(str?: string | null): boolean {
   if (!str || !isUrl(str)) return false;
   return (
     str.includes('chat-attachments') ||
     str.includes('avatars') ||
     str.startsWith('blob:') ||
-    /\.(jpg|jpeg|png|gif|webp|svg|pdf|docx?|xlsx?)(\?.*)?$/i.test(str)
+    /\.(jpg|jpeg|png|gif|webp|svg|pdf|docx?|xlsx?|mp4|webm|mov|m4v|mkv|3gp)(\?.*)?$/i.test(str)
   );
 }
 
@@ -118,6 +137,12 @@ export function getMessagePreviewText(message?: {
 } | null): string {
   if (!message) return 'No messages yet';
   if (message.content === 'Typing...') return 'Typing...';
+
+  // Check if message is a video first
+  if (isVideoMessage(message)) {
+    const caption = message.content && !isUrl(message.content) ? message.content.trim() : '';
+    return caption ? `Video: ${caption}` : 'Video';
+  }
 
   const type = message.message_type || 'text';
   if (type === 'image' || isMediaUrl(message.content)) {

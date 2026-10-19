@@ -32,19 +32,37 @@ export const AppLayout: React.FC = () => {
     initGlobalMessageSubscription();
     initCallSignaling();
 
-    // 10-second heartbeat check while document is visible to guarantee live sync
-    const interval = setInterval(() => {
+    const handleVisibilityOrFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         loadConversations();
         const currentActiveId = useChatStore.getState().activeConversationId;
         if (currentActiveId) {
           useChatStore.getState().loadMessages(currentActiveId);
         }
+        initCallSignaling();
       }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleVisibilityOrFocus);
+    }
+
+    // 10-second heartbeat check while document is visible to guarantee live sync
+    const interval = setInterval(() => {
+      handleVisibilityOrFocus();
     }, 10000);
 
     return () => {
       clearInterval(interval);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleVisibilityOrFocus);
+      }
       stopGlobalMessageSubscription();
       stopCallSignaling();
     };

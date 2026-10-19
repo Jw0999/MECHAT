@@ -7,6 +7,8 @@ import {
   getMessagePreviewText,
   isUrl,
   isMediaUrl,
+  isVideoUrl,
+  isVideoMessage,
 } from '../src/lib/utils';
 import { useChatStore } from '../src/stores/chatStore';
 import { useAuthStore } from '../src/stores/authStore';
@@ -88,6 +90,35 @@ describe('Chat Utilities & Formats', () => {
     expect(isUrl('https://example.com/pic.png')).toBe(true);
     expect(isUrl('Just a regular text message')).toBe(false);
     expect(isMediaUrl('https://example.com/chat-attachments/image.jpg')).toBe(true);
+    expect(isMediaUrl('https://example.com/chat-attachments/video.mp4')).toBe(true);
+
+    // 8. Video Detection & Preview Formatting
+    expect(isVideoUrl('https://example.com/clip.mp4')).toBe(true);
+    expect(isVideoUrl('https://example.com/recording.webm?token=abc')).toBe(true);
+    expect(isVideoUrl('https://example.com/photo.jpg')).toBe(false);
+
+    expect(
+      isVideoMessage({
+        message_type: 'file',
+        metadata: { mime_type: 'video/mp4', file_name: 'clip.mp4' },
+      })
+    ).toBe(true);
+
+    expect(
+      getMessagePreviewText({
+        message_type: 'file',
+        content: '',
+        metadata: { mime_type: 'video/mp4', file_name: 'demo.mp4' },
+      })
+    ).toBe('Video');
+
+    expect(
+      getMessagePreviewText({
+        message_type: 'file',
+        content: 'Check out this feature walkthrough',
+        metadata: { mime_type: 'video/mp4', file_name: 'walkthrough.mp4' },
+      })
+    ).toBe('Video: Check out this feature walkthrough');
   });
 });
 
@@ -175,6 +206,25 @@ describe('Chat Reply & Calling Logic', () => {
     expect(sentDoc.message_type).toBe('file');
     expect(sentDoc.metadata?.file_name).toBe('Project_Brief.pdf');
     expect(sentDoc.metadata?.file_size).toBe(1048576);
+
+    // 3. Send a video message
+    await store.sendMessage(
+      'conv-nina',
+      'vacation_clip.mp4',
+      'file',
+      {
+        file_name: 'vacation_clip.mp4',
+        file_url: 'https://example.com/vacation_clip.mp4',
+        file_size: 5242880,
+        mime_type: 'video/mp4',
+      }
+    );
+
+    messages = useChatStore.getState().messages['conv-nina'];
+    const sentVideo = messages[messages.length - 1];
+    expect(sentVideo.message_type).toBe('file');
+    expect(isVideoMessage(sentVideo)).toBe(true);
+    expect(sentVideo.metadata?.mime_type).toBe('video/mp4');
   });
 
   it('manages 1-on-1 call flow (initiate, mute, video toggle, end)', async () => {

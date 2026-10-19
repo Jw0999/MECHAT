@@ -18,6 +18,10 @@ class SoundEffectsManager {
   }
 
   // Play realistic melodious digital ringtone for incoming & outgoing calls
+  public playRingtone() {
+    this.startRingtone();
+  }
+
   public startRingtone() {
     this.stopRingtone();
 

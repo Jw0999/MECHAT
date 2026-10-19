@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Plus, Mic, Image, FileText, X, Square, Trash2 } from 'lucide-react';
+import { Send, Plus, Mic, Image, FileText, X, Square, Trash2, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Message } from '@/types/database.types';
 import { toast } from 'sonner';
@@ -32,7 +32,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
   const [pendingAttachment, setPendingAttachment] = useState<{
     file: File;
     previewUrl: string;
-    type: 'image' | 'file';
+    type: 'image' | 'video' | 'file';
   } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -96,11 +96,11 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
         const caption = text.trim();
         onSendMessage(
           caption,
-          pendingAttachment.type,
+          pendingAttachment.type === 'image' ? 'image' : 'file',
           {
             file_name: pendingAttachment.file.name,
             file_size: pendingAttachment.file.size,
-            mime_type: pendingAttachment.file.type,
+            mime_type: pendingAttachment.file.type || (pendingAttachment.type === 'video' ? 'video/mp4' : 'application/octet-stream'),
             file_url: url,
           }
         );
@@ -133,7 +133,7 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'file') => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, preferredType: 'image' | 'file') => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -142,8 +142,16 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       return;
     }
 
+    const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|mkv|3gp)$/i.test(file.name);
+    const isImage = file.type.startsWith('image/');
+    const attachType: 'image' | 'video' | 'file' = isVideo
+      ? 'video'
+      : preferredType === 'image' || isImage
+      ? 'image'
+      : 'file';
+
     const previewUrl = URL.createObjectURL(file);
-    setPendingAttachment({ file, previewUrl, type });
+    setPendingAttachment({ file, previewUrl, type: attachType });
     setShowAttachMenu(false);
   };
 
@@ -247,7 +255,24 @@ export const MessageComposer: React.FC<MessageComposerProps> = ({
       {/* Attachment Preview Banner */}
       {pendingAttachment && (
         <div className="relative inline-block mb-2 rounded-xl overflow-hidden border border-[#252C2E] shadow-md">
-          {pendingAttachment.type === 'image' ? (
+          {pendingAttachment.type === 'video' ? (
+            <div className="relative h-20 w-32 bg-black flex items-center justify-center rounded-xl overflow-hidden">
+              <video
+                src={pendingAttachment.previewUrl}
+                className="h-full w-full object-cover opacity-80 pointer-events-none"
+                preload="metadata"
+                muted
+              />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white">
+                  <Play size={16} fill="white" className="ml-0.5" />
+                </div>
+              </div>
+              <span className="absolute bottom-1 left-1.5 text-[9px] font-bold bg-black/80 px-1.5 py-0.5 rounded text-white font-mono uppercase tracking-wider">
+                Video
+              </span>
+            </div>
+          ) : pendingAttachment.type === 'image' ? (
             <img
               src={pendingAttachment.previewUrl}
               alt="Upload preview"

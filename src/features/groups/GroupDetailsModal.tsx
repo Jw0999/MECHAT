@@ -24,6 +24,8 @@ import {
   ExternalLink,
   Download,
   ArrowLeft,
+  Play,
+  Video as VideoIcon,
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
@@ -31,7 +33,7 @@ import { useCallStore } from '@/stores/callStore';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { DEMO_PROFILES } from '@/lib/constants/demoProfiles';
 import type { Profile, Message } from '@/types/database.types';
-import { formatDate, formatFileSize } from '@/lib/utils';
+import { formatDate, formatFileSize, isVideoMessage, isVideoUrl } from '@/lib/utils';
 import { toast } from 'sonner';
 
 // Stable empty fallback to prevent Zustand infinite loop re-renders
@@ -144,7 +146,9 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
     return messages.filter(
       (m) =>
         m.message_type === 'image' ||
+        isVideoMessage(m) ||
         Boolean(m.metadata?.file_url && m.metadata?.mime_type?.startsWith('image/')) ||
+        Boolean(m.metadata?.file_url && m.metadata?.mime_type?.startsWith('video/')) ||
         Boolean(getMediaUrl(m))
     );
   }, [messages]);
@@ -152,9 +156,10 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
   const docsList = useMemo(() => {
     return messages.filter(
       (m) =>
-        m.message_type === 'file' ||
-        Boolean(m.metadata?.file_name) ||
-        Boolean(m.metadata?.file_url && !m.metadata?.mime_type?.startsWith('image/'))
+        !isVideoMessage(m) &&
+        (m.message_type === 'file' ||
+          Boolean(m.metadata?.file_name) ||
+          Boolean(m.metadata?.file_url && !m.metadata?.mime_type?.startsWith('image/') && !m.metadata?.mime_type?.startsWith('video/')))
     );
   }, [messages]);
 
@@ -378,19 +383,36 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                       {mediaList.map((m) => {
                         const mediaUrl = getMediaUrl(m);
                         if (!mediaUrl) return null;
+                        const isVid = isVideoMessage(m) || isVideoUrl(mediaUrl);
                         return (
                           <div
                             key={m.id}
                             onClick={() => setSelectedImagePreview(mediaUrl)}
                             className="relative aspect-square rounded-2xl overflow-hidden bg-[#1E2325] border border-[#252C2E] cursor-pointer hover:border-brand/50 transition group"
                           >
-                            <img
-                              src={mediaUrl}
-                              alt="Shared media"
-                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                              loading="lazy"
-                            />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-end p-1.5">
+                            {isVid ? (
+                              <div className="w-full h-full relative bg-black flex items-center justify-center">
+                                <video
+                                  src={mediaUrl}
+                                  className="w-full h-full object-cover opacity-80 pointer-events-none"
+                                  preload="metadata"
+                                  muted
+                                />
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <div className="w-8 h-8 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white">
+                                    <Play size={16} fill="white" className="ml-0.5" />
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <img
+                                src={mediaUrl}
+                                alt="Shared media"
+                                className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                                loading="lazy"
+                              />
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-end p-1.5 pointer-events-none">
                               <span className="text-[9px] text-white/90 font-mono">
                                 {formatDate(m.created_at)}
                               </span>
@@ -949,25 +971,36 @@ export const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
         </div>
       </div>
 
-      {/* Full-screen Image Lightbox Preview */}
+      {/* Full-screen Media Lightbox Preview */}
       {selectedImagePreview && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-fade-in"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/95 backdrop-blur-md animate-fade-in"
           onClick={() => setSelectedImagePreview(null)}
         >
           <button
             onClick={() => setSelectedImagePreview(null)}
-            className="absolute top-5 right-5 w-10 h-10 rounded-full bg-[#151A1C] text-white flex items-center justify-center hover:bg-[#252C2E] transition"
+            className="absolute top-5 right-5 w-10 h-10 rounded-full bg-[#151A1C] text-white flex items-center justify-center hover:bg-[#252C2E] transition z-10"
             title="Close preview"
           >
             <X size={20} />
           </button>
-          <img
-            src={selectedImagePreview}
-            alt="Shared Media Preview"
-            className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {isVideoUrl(selectedImagePreview) ? (
+            <video
+              src={selectedImagePreview}
+              controls
+              autoPlay
+              playsInline
+              className="max-w-full max-h-[85vh] rounded-2xl shadow-2xl bg-black"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={selectedImagePreview}
+              alt="Shared Media Preview"
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
         </div>
       )}
     </>

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { Message } from '@/types/database.types';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
-import { formatMessageTime, formatFileSize, isUrl, isMediaUrl, getMessagePreviewText, cn } from '@/lib/utils';
+import { formatMessageTime, formatFileSize, isUrl, isMediaUrl, isVideoUrl, isVideoMessage, getMessagePreviewText, cn } from '@/lib/utils';
 import {
   Check,
   CheckCheck,
@@ -17,6 +17,7 @@ import {
   FileText,
   Download,
   Maximize2,
+  Video as VideoIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { downloadFile } from '@/lib/storage';
@@ -44,6 +45,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     (message.reply_to_message_id && conversationMessages
       ? conversationMessages.find((m) => m.id === message.reply_to_message_id) || null
       : null);
+
+  const isVideo = isVideoMessage(message);
+  const mediaUrl = message.metadata?.file_url || message.content || '';
 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -187,8 +191,50 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </p>
         )}
 
-        {/* Image Attachment (or legacy messages where content was a media URL) */}
-        {(message.message_type === 'image' || isMediaUrl(message.content)) && (
+        {/* Video Attachment (tap to play full-screen with controls) */}
+        {isVideo && (
+          <div className="space-y-1.5 max-w-sm">
+            <div
+              onClick={() => setIsImageViewerOpen(true)}
+              className="relative group/video cursor-pointer rounded-2xl overflow-hidden border border-black/15 shadow-sm bg-black"
+              title="Tap to play video"
+            >
+              <video
+                src={mediaUrl}
+                preload="metadata"
+                playsInline
+                muted
+                className="rounded-2xl max-h-72 w-full object-cover opacity-90 group-hover/video:opacity-100 transition duration-200 pointer-events-none"
+              />
+
+              {/* Video Badge in top-left corner */}
+              <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1.5 bg-black/75 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 shadow">
+                <VideoIcon size={12} className="text-brand" />
+                <span className="text-[10px] font-bold text-white uppercase tracking-wider">Video</span>
+                {message.metadata?.file_size && (
+                  <span className="text-[9px] text-[#9BA5A8] font-mono ml-0.5">
+                    • {formatFileSize(message.metadata.file_size)}
+                  </span>
+                )}
+              </div>
+
+              {/* Center Play Button Overlay */}
+              <div className="absolute inset-0 bg-black/35 group-hover/video:bg-black/45 transition-colors flex items-center justify-center">
+                <div className="w-14 h-14 rounded-full bg-black/60 backdrop-blur-md text-white flex items-center justify-center border border-white/20 shadow-2xl group-hover/video:scale-110 group-hover/video:bg-brand group-hover/video:text-[#0B0F10] group-hover/video:border-brand transition-all duration-200">
+                  <Play size={24} fill="currentColor" className="ml-1" />
+                </div>
+              </div>
+            </div>
+
+            {/* Render caption text ONLY if it is real user text and NOT a URL */}
+            {message.content && !isUrl(message.content) && (
+              <p className="whitespace-pre-wrap break-words text-xs pt-1 px-1">{message.content}</p>
+            )}
+          </div>
+        )}
+
+        {/* Image Attachment (only rendered if NOT a video) */}
+        {!isVideo && (message.message_type === 'image' || isMediaUrl(message.content)) && (
           <div className="space-y-1.5 max-w-sm">
             <div
               onClick={() => setIsImageViewerOpen(true)}
@@ -214,8 +260,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </div>
         )}
 
-        {/* Document / File Attachment */}
-        {message.message_type === 'file' && (
+        {/* Document / File Attachment (only rendered if NOT a video) */}
+        {!isVideo && message.message_type === 'file' && (
           <div className="space-y-1.5 min-w-[210px] max-w-[280px]">
             <div
               className={cn(
@@ -383,13 +429,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         )}
       </div>
 
-      {/* Fullscreen Picture Lightbox Viewer */}
-      {message.message_type === 'image' && (
+      {/* Fullscreen Picture & Video Lightbox Viewer */}
+      {(message.message_type === 'image' || isVideo || isMediaUrl(message.content)) && (
         <ImageViewerModal
           isOpen={isImageViewerOpen}
           onClose={() => setIsImageViewerOpen(false)}
-          imageUrl={message.metadata?.file_url || message.content}
-          fileName={message.metadata?.file_name || 'photo.jpg'}
+          mediaUrl={mediaUrl}
+          imageUrl={mediaUrl}
+          isVideo={isVideo}
+          fileName={message.metadata?.file_name || (isVideo ? 'video.mp4' : 'photo.jpg')}
         />
       )}
     </div>
