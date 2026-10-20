@@ -18,6 +18,7 @@ import {
   Download,
   Maximize2,
   Video as VideoIcon,
+  Gamepad2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { downloadFile } from '@/lib/storage';
@@ -48,6 +49,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   const isVideo = isVideoMessage(message);
   const mediaUrl = message.metadata?.file_url || message.content || '';
+  const extractedRoomCode =
+    message.metadata?.roomCode ||
+    message.content?.match(/(?:Room Code|room code):\s*([A-Z0-9]{6})/i)?.[1] ||
+    null;
 
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [isImageViewerOpen, setIsImageViewerOpen] = useState(false);
@@ -189,6 +194,53 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           <p className="whitespace-pre-wrap break-words leading-relaxed select-text pr-3">
             {message.content}
           </p>
+        )}
+
+        {/* Interactive Game Invitation Card */}
+        {extractedRoomCode && (
+          <div
+            className={cn(
+              'mt-2 p-3 rounded-2xl border transition-all space-y-2 select-none',
+              isOutgoing
+                ? 'bg-black/10 border-black/20 text-[#0B0F10]'
+                : 'bg-[#151A1C] border-[#252C2E] text-[#F5F7F7]'
+            )}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 font-bold text-xs">
+                <Gamepad2 size={16} className={isOutgoing ? 'text-[#0B0F10]' : 'text-brand'} />
+                <span>Match Room Code</span>
+              </div>
+              <span className="text-[10px] font-mono font-semibold uppercase opacity-75">MeChat Games</span>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 p-2 rounded-xl bg-black/20 border border-white/5">
+              <span className="font-mono text-lg font-black tracking-widest text-brand">
+                {extractedRoomCode}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(extractedRoomCode);
+                  toast.success(`Copied code ${extractedRoomCode}! Go to Games > Join with Code.`);
+                }}
+                className={cn(
+                  'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm',
+                  isOutgoing
+                    ? 'bg-[#0B0F10] text-brand hover:bg-black'
+                    : 'bg-brand text-[#0B0F10] hover:bg-brand/90'
+                )}
+              >
+                <Copy size={12} />
+                <span>Copy Code</span>
+              </button>
+            </div>
+
+            <p className="text-[10px] opacity-75 leading-tight">
+              👉 Tap <b>Copy Code</b>, then open <b>Games &gt; Join with Code</b> to play!
+            </p>
+          </div>
         )}
 
         {/* Video Attachment (tap to play full-screen with controls) */}

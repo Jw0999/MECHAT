@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, RotateCcw, Copy, Share2, Check, Trophy } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Copy, Share2, Check, Trophy, Users } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/authStore';
 import { gameRoomService } from '../services/gameRoomService';
+import { ShareGameCodeModal } from '../ShareGameCodeModal';
 import { checkWinner, createInitialTicTacToeState } from './ticTacToeRules';
 import type { GameRoom, TicTacToeState } from '@/types/games.types';
 import { cn, getInitials } from '@/lib/utils';
@@ -18,6 +19,7 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
   const [room, setRoom] = useState<GameRoom>(initialRoom);
   const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const currentUserId = useAuthStore((s) => s.user?.id) || 'demo-user-1';
   const currentUserProfile = useAuthStore((s) => s.profile);
 
@@ -122,21 +124,9 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
     }
   }, [room.room_code]);
 
-  const handleShare = useCallback(async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Play Tic-Tac-Toe with me on MeChat',
-          text: `Join my Tic-Tac-Toe match on MeChat! Room code: ${room.room_code}`,
-          url: window.location.href,
-        });
-      } catch {
-        handleCopyCode();
-      }
-    } else {
-      handleCopyCode();
-    }
-  }, [room.room_code, handleCopyCode]);
+  const handleShare = useCallback(() => {
+    setIsShareModalOpen(true);
+  }, []);
 
   const handleRematch = async () => {
     try {
@@ -208,16 +198,25 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
             </p>
           </div>
 
-          <div className="p-4 rounded-2xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#E9EDE8] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] flex items-center gap-4">
+          <div className="p-4 rounded-2xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#E9EDE8] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] flex flex-col sm:flex-row items-center gap-3">
             <span className="font-mono text-2xl font-black tracking-widest text-brand">
               {room.room_code}
             </span>
-            <button
-              onClick={handleCopyCode}
-              className="px-3 py-1.5 rounded-xl bg-brand text-[#0B0F10] text-xs font-bold hover:bg-brand/90 transition-colors"
-            >
-              {copied ? 'Copied!' : 'Copy Code'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCopyCode}
+                className="px-3 py-1.5 rounded-xl bg-[#252C2E] text-white text-xs font-bold hover:bg-[#323a3d] transition-colors"
+              >
+                {copied ? 'Copied!' : 'Copy Code'}
+              </button>
+              <button
+                onClick={() => setIsShareModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand text-[#0B0F10] text-xs font-bold hover:bg-brand/90 transition-colors shadow-sm"
+              >
+                <Users size={14} />
+                <span>Share with User</span>
+              </button>
+            </div>
           </div>
 
           <button
@@ -361,6 +360,13 @@ export const TicTacToeGameScreen: React.FC<TicTacToeGameScreenProps> = ({ initia
           </div>
         </div>
       )}
+      {/* Share with Registered Users Modal */}
+      <ShareGameCodeModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        roomCode={room.room_code}
+        gameType={room.game_type}
+      />
     </div>
   );
 };

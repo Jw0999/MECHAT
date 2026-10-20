@@ -1,9 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { ArrowLeft, RotateCcw, Copy, Share2, Check, Trophy, AlertCircle } from 'lucide-react';
+import { ArrowLeft, RotateCcw, Copy, Share2, Check, Trophy, AlertCircle, Users } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/authStore';
 import { gameRoomService } from '../services/gameRoomService';
+import { ShareGameCodeModal } from '../ShareGameCodeModal';
 import {
   TABLE_WIDTH,
   TABLE_HEIGHT,
@@ -35,6 +36,7 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
   const [isAiming, setIsAiming] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [ballInHandDragging, setBallInHandDragging] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -491,21 +493,9 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
     }
   }, [room.room_code]);
 
-  const handleShare = useCallback(async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Play 8-Ball Pool on MeChat',
-          text: `Join my 8-Ball Pool match on MeChat! Room code: ${room.room_code}`,
-          url: window.location.href,
-        });
-      } catch {
-        handleCopyCode();
-      }
-    } else {
-      handleCopyCode();
-    }
-  }, [room.room_code, handleCopyCode]);
+  const handleShare = useCallback(() => {
+    setIsShareModalOpen(true);
+  }, []);
 
   const handleRematch = async () => {
     try {
@@ -579,16 +569,25 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
             </p>
           </div>
 
-          <div className="p-4 rounded-2xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#E9EDE8] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] flex items-center gap-4">
+          <div className="p-4 rounded-2xl bg-[#151A1C] dark:bg-[#151A1C] light:bg-[#E9EDE8] border border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] flex flex-col sm:flex-row items-center gap-3">
             <span className="font-mono text-2xl font-black tracking-widest text-brand">
               {room.room_code}
             </span>
-            <button
-              onClick={handleCopyCode}
-              className="px-3 py-1.5 rounded-xl bg-brand text-[#0B0F10] text-xs font-bold hover:bg-brand/90 transition-colors"
-            >
-              {copied ? 'Copied!' : 'Copy Code'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCopyCode}
+                className="px-3 py-1.5 rounded-xl bg-[#252C2E] text-white text-xs font-bold hover:bg-[#323a3d] transition-colors"
+              >
+                {copied ? 'Copied!' : 'Copy Code'}
+              </button>
+              <button
+                onClick={() => setIsShareModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand text-[#0B0F10] text-xs font-bold hover:bg-brand/90 transition-colors shadow-sm"
+              >
+                <Users size={14} />
+                <span>Share with User</span>
+              </button>
+            </div>
           </div>
 
           <button
@@ -778,6 +777,13 @@ export const PoolGameScreen: React.FC<PoolGameScreenProps> = ({ initialRoom, onE
           )}
         </div>
       )}
+      {/* Share with Registered Users Modal */}
+      <ShareGameCodeModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        roomCode={room.room_code}
+        gameType={room.game_type}
+      />
     </div>
   );
 };

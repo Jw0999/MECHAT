@@ -106,7 +106,14 @@ export const GamesHomeScreen: React.FC = () => {
           .getState()
           .sendMessage(
             selectedGroup.id,
-            `🎮 ${currentProfile?.display_name || 'Host'} started a game of ${gameTitle}! Join room code: ${room.room_code}`
+            `🎮 ${currentProfile?.display_name || 'Host'} started a game of ${gameTitle}!\n\nRoom Code: ${room.room_code}\n\n👉 Copy the code and go to Games > Join with Code to play!`,
+            'text',
+            {
+              isGameInvite: true,
+              gameType,
+              roomCode: room.room_code,
+              hostName: currentProfile?.display_name || 'Host',
+            }
           );
       } catch {}
 

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Copy, Check, RotateCcw, Trophy, Timer, Users, Award, Sparkles } from 'lucide-react';
+import { ArrowLeft, Copy, Check, RotateCcw, Trophy, Timer, Users, Award, Sparkles, Share2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/authStore';
 import { gameRoomService } from '../services/gameRoomService';
+import { ShareGameCodeModal } from '../ShareGameCodeModal';
 import { createInitialTriviaState } from './triviaRules';
 import type { GameRoom, TriviaGameState } from '@/types/games.types';
 import { cn, getInitials } from '@/lib/utils';
@@ -17,6 +18,7 @@ interface TriviaGameScreenProps {
 export const TriviaGameScreen: React.FC<TriviaGameScreenProps> = ({ initialRoom, onExit }) => {
   const [room, setRoom] = useState<GameRoom>(initialRoom);
   const [copied, setCopied] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number>(15);
   const [selectedOption, setSelectedOption] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -177,6 +179,13 @@ export const TriviaGameScreen: React.FC<TriviaGameScreenProps> = ({ initialRoom,
           >
             <span>{room.room_code}</span>
             {copied ? <Check size={12} className="text-brand" /> : <Copy size={12} />}
+          </button>
+          <button
+            onClick={() => setIsShareModalOpen(true)}
+            aria-label="Share room invitation"
+            className="p-1 rounded-lg hover:bg-[#151A1C] text-[#9BA5A8] hover:text-white transition-colors"
+          >
+            <Share2 size={16} />
           </button>
         </div>
       </header>
@@ -360,6 +369,14 @@ export const TriviaGameScreen: React.FC<TriviaGameScreenProps> = ({ initialRoom,
           </div>
         </div>
       )}
+
+      {/* Share with Registered Users Modal */}
+      <ShareGameCodeModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        roomCode={room.room_code}
+        gameType={room.game_type}
+      />
     </div>
   );
 };

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Copy, Check, RotateCcw, Sparkles, AlertCircle, Users } from 'lucide-react';
+import { ArrowLeft, Copy, Check, RotateCcw, Sparkles, AlertCircle, Users, Share2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/authStore';
 import { gameRoomService } from '../services/gameRoomService';
+import { ShareGameCodeModal } from '../ShareGameCodeModal';
 import { isValidWhotMove, createInitialWhotGameState } from './whotRules';
 import type { GameRoom, WhotCard, WhotGameState, WhotShape } from '@/types/games.types';
 import { cn, getInitials } from '@/lib/utils';
@@ -37,6 +38,7 @@ export const WhotGameScreen: React.FC<WhotGameScreenProps> = ({ initialRoom, onE
   const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [whotPickerCardId, setWhotPickerCardId] = useState<string | null>(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const currentUserId = useAuthStore((s) => s.user?.id) || 'demo-user-1';
   const whotState: WhotGameState = room.game_state;
@@ -193,6 +195,13 @@ export const WhotGameScreen: React.FC<WhotGameScreenProps> = ({ initialRoom, onE
           >
             <span>{room.room_code}</span>
             {copied ? <Check size={12} className="text-brand" /> : <Copy size={12} />}
+          </button>
+          <button
+            onClick={() => setIsShareModalOpen(true)}
+            aria-label="Share room invitation"
+            className="p-1 rounded-lg hover:bg-[#151A1C] text-[#9BA5A8] hover:text-white transition-colors"
+          >
+            <Share2 size={16} />
           </button>
         </div>
       </header>
@@ -433,6 +442,13 @@ export const WhotGameScreen: React.FC<WhotGameScreenProps> = ({ initialRoom, onE
           </div>
         </div>
       )}
+      {/* Share with Registered Users Modal */}
+      <ShareGameCodeModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        roomCode={room.room_code}
+        gameType={room.game_type}
+      />
     </div>
   );
 };
