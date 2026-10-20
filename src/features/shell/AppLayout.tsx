@@ -13,10 +13,12 @@ import { CallOverlayModal } from '@/features/calling/CallOverlayModal';
 import { GroupCallModal } from '@/features/calling/GroupCallModal';
 import { useChatStore } from '@/stores/chatStore';
 import { useCallStore } from '@/stores/callStore';
+import { useNavigationStore } from '@/stores/navigationStore';
 import { MessageCircle, Users, X } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
-  const [currentTab, setCurrentTab] = useState<NavTab>('chat');
+  const currentTab = useNavigationStore((s) => s.currentTab);
+  const setCurrentTab = useNavigationStore((s) => s.setCurrentTab);
   const activeConversationId = useChatStore((s) => s.activeConversationId);
   const setActiveConversationId = useChatStore((s) => s.setActiveConversationId);
   const loadConversations = useChatStore((s) => s.loadConversations);

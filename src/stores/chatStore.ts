@@ -41,7 +41,7 @@ interface ChatState {
     replyToId?: string
   ) => Promise<boolean>;
   deleteMessage: (messageId: string, conversationId: string) => Promise<void>;
-  createDirectConversation: (targetUserId: string) => Promise<string | null>;
+  createDirectConversation: (targetUserId: string, setActive?: boolean) => Promise<string | null>;
   createGroup: (
     title: string,
     memberIds: string[],
@@ -1180,7 +1180,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  createDirectConversation: async (targetUserId: string) => {
+  createDirectConversation: async (targetUserId: string, setActive: boolean = true) => {
     const { isDemoMode, user } = useAuthStore.getState();
     if (!user) return null;
 
@@ -1189,7 +1189,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         (c) => c.type === 'direct' && c.other_user?.id === targetUserId
       );
       if (existing) {
-        get().setActiveConversationId(existing.id);
+        if (setActive) {
+          get().setActiveConversationId(existing.id);
+        }
         return existing.id;
       }
       const newConvId = `conv-direct-${Date.now()}`;
@@ -1221,7 +1223,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       set((st) => ({
         conversations: [newConv, ...st.conversations],
       }));
-      get().setActiveConversationId(newConvId);
+      if (setActive) {
+        get().setActiveConversationId(newConvId);
+      }
       return newConvId;
     }
 
@@ -1234,7 +1238,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       if (error) throw error;
       await get().loadConversations();
-      get().setActiveConversationId(convId);
+      if (setActive) {
+        get().setActiveConversationId(convId);
+      }
       return convId;
     } catch (err: any) {
       toast.error(err.message || 'Could not start conversation');

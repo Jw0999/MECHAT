@@ -98,8 +98,8 @@ export const ShareGameCodeModal: React.FC<ShareGameCodeModalProps> = ({
 
     setSendingUserId(targetUser.id);
     try {
-      // 1. Create or get existing direct conversation with target user
-      const conversationId = await createDirectConversation(targetUser.id);
+      // 1. Create or get existing direct conversation with target user WITHOUT switching active conversation
+      const conversationId = await createDirectConversation(targetUser.id, false);
       if (!conversationId) {
         throw new Error('Could not open conversation with user');
       }
@@ -117,7 +117,7 @@ export const ShareGameCodeModal: React.FC<ShareGameCodeModalProps> = ({
       });
 
       setSentUserIds((prev) => new Set(prev).add(targetUser.id));
-      toast.success(`Game code sent to ${targetUser.display_name}!`);
+      toast.success(`Game code sent to ${targetUser.display_name}! Waiting for them to enter...`);
     } catch (err: any) {
       toast.error(err.message || 'Failed to send game code');
     } finally {
@@ -289,11 +289,17 @@ export const ShareGameCodeModal: React.FC<ShareGameCodeModalProps> = ({
           )}
         </div>
 
-        {/* Footer Note */}
-        <div className="pt-3 mt-2 border-t border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] text-center">
+        {/* Footer Note & Return to Game */}
+        <div className="pt-3 mt-2 border-t border-[#252C2E] dark:border-[#252C2E] light:border-[#E0E6DD] space-y-2 text-center">
           <p className="text-[11px] text-[#9BA5A8]">
-            Tapping "Send Code" sends a direct chat message with the room code so they can paste it in <span className="text-brand font-semibold">Join with Code</span>.
+            Code is sent silently in chat so your game room stays open waiting for them to join.
           </p>
+          <button
+            onClick={onClose}
+            className="w-full py-2.5 rounded-xl bg-brand text-[#0B0F10] hover:bg-brand/90 text-xs font-bold transition-all shadow-sm active:scale-98"
+          >
+            Done (Return to Game)
+          </button>
         </div>
       </div>
     </div>

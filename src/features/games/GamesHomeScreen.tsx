@@ -4,6 +4,7 @@ import { RoomLobbyModal } from './RoomLobbyModal';
 import { TicTacToeGameScreen } from './tic-tac-toe/TicTacToeGameScreen';
 import { useChatStore } from '@/stores/chatStore';
 import { useAuthStore } from '@/stores/authStore';
+import { useGameStore } from '@/stores/gameStore';
 import { gameRoomService } from './services/gameRoomService';
 import { createInitialWhotGameState } from './whot/whotRules';
 import { createInitialTriviaState } from './trivia/triviaRules';
@@ -17,9 +18,12 @@ const WhotGameScreen = lazy(() => import('./whot/WhotGameScreen'));
 const TriviaGameScreen = lazy(() => import('./trivia/TriviaGameScreen'));
 
 export const GamesHomeScreen: React.FC = () => {
-  const [activeRoom, setActiveRoom] = useState<GameRoom | null>(null);
+  const activeRoom = useGameStore((s) => s.activeRoom);
+  const setActiveRoom = useGameStore((s) => s.setActiveRoom);
+  const selectedGroupId = useGameStore((s) => s.selectedGroupId);
+  const setSelectedGroupId = useGameStore((s) => s.setSelectedGroupId);
+
   const [category, setCategory] = useState<'2player' | 'group'>('2player');
-  const [selectedGroupId, setSelectedGroupId] = useState<string>('');
   const [isCreatingGroupGame, setIsCreatingGroupGame] = useState(false);
 
   const [modalState, setModalState] = useState<{

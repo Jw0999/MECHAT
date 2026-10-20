@@ -2,6 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { Message } from '@/types/database.types';
 import { useAuthStore } from '@/stores/authStore';
 import { useChatStore } from '@/stores/chatStore';
+import { useNavigationStore } from '@/stores/navigationStore';
+import { useGameStore } from '@/stores/gameStore';
+import { gameRoomService } from '@/features/games/services/gameRoomService';
 import { formatMessageTime, formatFileSize, isUrl, isMediaUrl, isVideoUrl, isVideoMessage, getMessagePreviewText, cn } from '@/lib/utils';
 import {
   Check,
@@ -218,27 +221,50 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
               <span className="font-mono text-lg font-black tracking-widest text-brand">
                 {extractedRoomCode}
               </span>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigator.clipboard.writeText(extractedRoomCode);
-                  toast.success(`Copied code ${extractedRoomCode}! Go to Games > Join with Code.`);
-                }}
-                className={cn(
-                  'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm',
-                  isOutgoing
-                    ? 'bg-[#0B0F10] text-brand hover:bg-black'
-                    : 'bg-brand text-[#0B0F10] hover:bg-brand/90'
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(extractedRoomCode);
+                    toast.success(`Copied code ${extractedRoomCode}! Go to Games > Join with Code.`);
+                  }}
+                  className={cn(
+                    'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm',
+                    isOutgoing
+                      ? 'bg-[#0B0F10] text-brand hover:bg-black'
+                      : 'bg-[#252C2E] text-zinc-200 hover:text-white hover:bg-[#323a3d]'
+                  )}
+                >
+                  <Copy size={12} />
+                  <span>Copy Code</span>
+                </button>
+                {!isOutgoing && (
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        const joined = await gameRoomService.joinRoom(extractedRoomCode);
+                        useGameStore.getState().setActiveRoom(joined);
+                        useChatStore.getState().setActiveConversationId(null);
+                        useNavigationStore.getState().setCurrentTab('games');
+                        toast.success(`Joined match! Entering room ${extractedRoomCode}...`);
+                      } catch (err: any) {
+                        toast.error(err.message || 'Failed to join game');
+                      }
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all active:scale-95 shadow-sm bg-brand text-[#0B0F10] hover:bg-brand/90"
+                  >
+                    <Play size={12} />
+                    <span>Join Game</span>
+                  </button>
                 )}
-              >
-                <Copy size={12} />
-                <span>Copy Code</span>
-              </button>
+              </div>
             </div>
 
             <p className="text-[10px] opacity-75 leading-tight">
-              👉 Tap <b>Copy Code</b>, then open <b>Games &gt; Join with Code</b> to play!
+              👉 Tap <b>Join Game</b> to enter directly, or tap <b>Copy Code</b> to paste in <b>Games &gt; Join with Code</b>!
             </p>
           </div>
         )}
