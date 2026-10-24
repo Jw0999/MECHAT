@@ -100,6 +100,11 @@ export interface CallLog {
   ended_at: string | null;
   caller?: Profile;
   receiver?: Profile;
+  // Group call extensions
+  is_group?: boolean;
+  group_title?: string;
+  group_avatar_url?: string;
+  group_members_count?: number;
 }
 
 export interface UserSettings {

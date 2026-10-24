@@ -26,18 +26,21 @@ export const AppLayout: React.FC = () => {
   const stopGlobalMessageSubscription = useChatStore((s) => s.stopGlobalMessageSubscription);
   const initCallSignaling = useCallStore((s) => s.initCallSignaling);
   const stopCallSignaling = useCallStore((s) => s.stopCallSignaling);
+  const loadCallHistory = useCallStore((s) => s.loadCallHistory);
   const incomingGroupCall = useCallStore((s) => s.incomingGroupCall);
   const initiateGroupCall = useCallStore((s) => s.initiateGroupCall);
   const dismissIncomingGroupCall = useCallStore((s) => s.dismissIncomingGroupCall);
 
   useEffect(() => {
     loadConversations();
+    loadCallHistory();
     initGlobalMessageSubscription();
     initCallSignaling();
 
     const handleVisibilityOrFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         loadConversations();
+        loadCallHistory();
         const currentActiveId = useChatStore.getState().activeConversationId;
         if (currentActiveId) {
           useChatStore.getState().loadMessages(currentActiveId);
