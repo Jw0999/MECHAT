@@ -245,7 +245,10 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     onClick={async (e) => {
                       e.stopPropagation();
                       try {
-                        const joined = await gameRoomService.joinRoom(extractedRoomCode);
+                        const joined = await gameRoomService.joinRoom(
+                          extractedRoomCode,
+                          message.metadata?.gameType
+                        );
                         useGameStore.getState().setActiveRoom(joined);
                         useChatStore.getState().setActiveConversationId(null);
                         useNavigationStore.getState().setCurrentTab('games');

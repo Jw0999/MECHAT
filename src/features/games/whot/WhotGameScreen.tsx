@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/authStore';
 import { gameRoomService } from '../services/gameRoomService';
 import { ShareGameCodeModal } from '../ShareGameCodeModal';
-import { isValidWhotMove, createInitialWhotGameState } from './whotRules';
+import { isValidWhotMove, createInitialWhotGameState, getBotWhotMove, ensurePlayerInWhotGame } from './whotRules';
 import type { GameRoom, WhotCard, WhotGameState, WhotShape } from '@/types/games.types';
 import { cn, getInitials } from '@/lib/utils';
 import { soundEffects } from '@/lib/audio/soundEffects';
@@ -88,6 +88,74 @@ export const WhotGameScreen: React.FC<WhotGameScreenProps> = ({ initialRoom, onE
       unsubscribe();
     };
   }, [room.id, room.room_code]);
+
+  // Ensure current player is registered in the Whot game players list
+  useEffect(() => {
+    if (!whotState || !whotState.players) return;
+    const isPlayerInGame = whotState.players.some((p) => p.user_id === currentUserId);
+    if (!isPlayerInGame) {
+      const myProfile = useAuthStore.getState().profile;
+      const updatedWhotState = ensurePlayerInWhotGame(whotState, {
+        id: currentUserId,
+        display_name: myProfile?.display_name || 'Player',
+        avatar_url: myProfile?.avatar_url || null,
+      });
+      const roomKey = room.room_code || room.id;
+      const updatedRoom: GameRoom = {
+        ...room,
+        game_state: updatedWhotState,
+        state_version: room.state_version + 1,
+      };
+      setRoom(updatedRoom);
+      gameRoomService.updateRoomState(roomKey, updatedRoom);
+    }
+  }, [whotState?.players, currentUserId]);
+
+  // Automated squad turn handler for group games when host
+  useEffect(() => {
+    if (isGameOver || !topCard || !whotState?.players) return;
+    const isHost = room.host_user_id === currentUserId;
+    if (!isHost) return;
+
+    const currentTurnUser = whotState.players.find((p) => p.user_id === whotState.currentTurnUserId);
+    if (currentTurnUser && currentTurnUser.user_id !== currentUserId) {
+      const timer = setTimeout(async () => {
+        try {
+          const move = getBotWhotMove(
+            currentTurnUser,
+            topCard,
+            whotState.requestedShape,
+            whotState.pendingPickCount
+          );
+          const roomKey = room.room_code || room.id;
+          if (move.cardId) {
+            const updated = await gameRoomService.submitWhotMove(
+              roomKey,
+              move.cardId,
+              move.chosenShape,
+              currentTurnUser.user_id
+            );
+            setRoom(updated);
+          } else {
+            const updated = await gameRoomService.submitWhotDraw(roomKey, currentTurnUser.user_id);
+            setRoom(updated);
+          }
+        } catch (e) {
+          console.warn('Squad turn notice:', e);
+        }
+      }, 1500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [
+    whotState?.currentTurnUserId,
+    room.state_version,
+    whotState?.players,
+    isGameOver,
+    topCard,
+    room.host_user_id,
+    currentUserId,
+  ]);
 
   const handleCopyCode = useCallback(() => {
     if (navigator?.clipboard) {

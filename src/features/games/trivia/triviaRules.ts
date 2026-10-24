@@ -90,3 +90,27 @@ export const advanceTriviaQuestion = (state: TriviaGameState): TriviaGameState =
     winnerUserId,
   };
 };
+
+export const ensurePlayerInTriviaGame = (
+  state: TriviaGameState,
+  user: { id: string; display_name: string; avatar_url?: string | null }
+): TriviaGameState => {
+  if (state.players.some((p) => p.user_id === user.id)) {
+    return state;
+  }
+
+  const newPlayer: TriviaPlayer = {
+    user_id: user.id,
+    display_name: user.display_name || 'Squad Member',
+    avatar_url: user.avatar_url || null,
+    score: 0,
+    selectedOptionIndex: null,
+    answeredAtMs: null,
+    isCorrect: null,
+  };
+
+  return {
+    ...state,
+    players: [...state.players, newPlayer],
+  };
+};

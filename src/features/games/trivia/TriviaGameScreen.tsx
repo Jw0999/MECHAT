@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { useAuthStore } from '@/stores/authStore';
 import { gameRoomService } from '../services/gameRoomService';
 import { ShareGameCodeModal } from '../ShareGameCodeModal';
-import { createInitialTriviaState } from './triviaRules';
+import { createInitialTriviaState, ensurePlayerInTriviaGame } from './triviaRules';
 import type { GameRoom, TriviaGameState } from '@/types/games.types';
 import { cn, getInitials } from '@/lib/utils';
 import { soundEffects } from '@/lib/audio/soundEffects';
@@ -92,6 +92,73 @@ export const TriviaGameScreen: React.FC<TriviaGameScreenProps> = ({ initialRoom,
       unsubscribe();
     };
   }, [room.id, room.room_code]);
+
+  // Ensure current user is in Trivia players list
+  useEffect(() => {
+    if (!triviaState || !triviaState.players) return;
+    const isPlayerInGame = triviaState.players.some((p) => p.user_id === currentUserId);
+    if (!isPlayerInGame) {
+      const myProfile = useAuthStore.getState().profile;
+      const updatedTriviaState = ensurePlayerInTriviaGame(triviaState, {
+        id: currentUserId,
+        display_name: myProfile?.display_name || 'Player',
+        avatar_url: myProfile?.avatar_url || null,
+      });
+      const roomKey = room.room_code || room.id;
+      const updatedRoom: GameRoom = {
+        ...room,
+        game_state: updatedTriviaState,
+        state_version: room.state_version + 1,
+      };
+      setRoom(updatedRoom);
+      gameRoomService.updateRoomState(roomKey, updatedRoom);
+    }
+  }, [triviaState?.players, currentUserId]);
+
+  // Simulate squad answers in group matches so game stays competitive and alive
+  useEffect(() => {
+    if (isGameOver || !currentQuestion || !isHost || !triviaState?.players) return;
+
+    const unansweredSquad = triviaState.players.filter(
+      (p) => p.user_id !== currentUserId && p.selectedOptionIndex === null
+    );
+
+    if (unansweredSquad.length === 0) return;
+
+    const timers = unansweredSquad.map((squadMember, index) => {
+      const delay = 2500 + index * 1000 + Math.random() * 1000;
+      return setTimeout(async () => {
+        try {
+          const roomKey = room.room_code || room.id;
+          const pickCorrect = Math.random() < 0.7;
+          const chosenOption = pickCorrect
+            ? currentQuestion.correctIndex
+            : Math.floor(Math.random() * currentQuestion.options.length);
+
+          const timeTakenMs = Math.min(14000, Math.floor(delay));
+          const updated = await gameRoomService.submitTriviaAnswer(
+            roomKey,
+            chosenOption,
+            timeTakenMs,
+            squadMember.user_id
+          );
+          setRoom(updated);
+        } catch (e) {
+          console.warn('Squad answer notice:', e);
+        }
+      }, delay);
+    });
+
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+    };
+  }, [
+    triviaState?.currentQuestionIndex,
+    triviaState?.players,
+    isGameOver,
+    isHost,
+    currentQuestion,
+  ]);
 
   const handleCopyCode = useCallback(() => {
     if (navigator?.clipboard) {

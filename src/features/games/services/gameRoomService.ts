@@ -1,17 +1,23 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { useAuthStore } from '@/stores/authStore';
+import { useGameStore } from '@/stores/gameStore';
 import type { GameRoom, GameType, PoolShotCommand, PoolGameState, WhotShape, WhotGameState, TriviaGameState } from '@/types/games.types';
 import type { Profile } from '@/types/database.types';
 import { checkWinner } from '../tic-tac-toe/ticTacToeRules';
 import { createInitialPoolGameState } from '../pool/poolPhysics';
 import { createInitialTicTacToeState } from '../tic-tac-toe/ticTacToeRules';
-import { applyWhotMove, applyWhotDraw } from '../whot/whotRules';
-import { submitTriviaAnswer as calcTriviaAnswer, advanceTriviaQuestion as calcNextTrivia } from '../trivia/triviaRules';
+import { applyWhotMove, applyWhotDraw, createInitialWhotGameState, ensurePlayerInWhotGame } from '../whot/whotRules';
+import {
+  submitTriviaAnswer as calcTriviaAnswer,
+  advanceTriviaQuestion as calcNextTrivia,
+  createInitialTriviaState,
+  ensurePlayerInTriviaGame,
+} from '../trivia/triviaRules';
 
 // Cryptographically secure random room code generation (excludes 0, O, 1, I for clarity)
 const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 
-export const generateRoomCode = (): string => {
+export const generateRoomCode = (gameType?: GameType): string => {
   const bytes = new Uint8Array(6);
   if (typeof window !== 'undefined' && window.crypto) {
     window.crypto.getRandomValues(bytes);
@@ -20,8 +26,21 @@ export const generateRoomCode = (): string => {
       bytes[i] = Math.floor(Math.random() * 256);
     }
   }
-  let code = '';
-  for (let i = 0; i < 6; i++) {
+
+  const prefix =
+    gameType === 'pool'
+      ? 'P'
+      : gameType === 'whot'
+      ? 'W'
+      : gameType === 'trivia'
+      ? 'Q'
+      : gameType === 'tic_tac_toe'
+      ? 'T'
+      : '';
+
+  let code = prefix;
+  const startIndex = prefix ? 1 : 0;
+  for (let i = startIndex; i < 6; i++) {
     code += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
   }
   return code;
@@ -48,13 +67,54 @@ const isSchemaError = (err: any): boolean => {
 export const gameRoomService = {
   createRoom: async (
     gameType: GameType,
-    initialState: any,
+    initialState?: any,
     conversationId?: string | null,
     players?: { user_id: string; profile: Profile }[]
   ): Promise<GameRoom> => {
     const { user, profile, isDemoMode } = useAuthStore.getState();
     const currentUserId = user?.id || 'demo-user-1';
-    const roomCode = generateRoomCode();
+    const roomCode = generateRoomCode(gameType);
+
+    let resolvedInitialState = initialState;
+    if (!resolvedInitialState) {
+      if (gameType === 'pool') {
+        resolvedInitialState = createInitialPoolGameState();
+      } else if (gameType === 'whot') {
+        resolvedInitialState = createInitialWhotGameState(
+          players && players.length > 0
+            ? players.map((p) => ({
+                id: p.user_id,
+                display_name: p.profile.display_name,
+                avatar_url: p.profile.avatar_url,
+              }))
+            : [
+                {
+                  id: currentUserId,
+                  display_name: profile?.display_name || 'You',
+                  avatar_url: profile?.avatar_url || null,
+                },
+              ]
+        );
+      } else if (gameType === 'trivia') {
+        resolvedInitialState = createInitialTriviaState(
+          players && players.length > 0
+            ? players.map((p) => ({
+                id: p.user_id,
+                display_name: p.profile.display_name,
+                avatar_url: p.profile.avatar_url,
+              }))
+            : [
+                {
+                  id: currentUserId,
+                  display_name: profile?.display_name || 'You',
+                  avatar_url: profile?.avatar_url || null,
+                },
+              ]
+        );
+      } else {
+        resolvedInitialState = createInitialTicTacToeState();
+      }
+    }
 
     const fallbackRoom: GameRoom = {
       id: roomCode,
@@ -84,7 +144,7 @@ export const gameRoomService = {
         },
       ],
       current_turn_user_id: currentUserId,
-      game_state: initialState,
+      game_state: resolvedInitialState,
       state_version: 1,
       winner_user_id: null,
       rematch_requested_by: null,
@@ -167,7 +227,7 @@ export const gameRoomService = {
     return fallbackRoom;
   },
 
-  joinRoom: async (rawRoomCode: string): Promise<GameRoom> => {
+  joinRoom: async (rawRoomCode: string, hintGameType?: GameType): Promise<GameRoom> => {
     const { user, profile, isDemoMode } = useAuthStore.getState();
     const currentUserId = user?.id || 'demo-user-2';
     const cleanCode = rawRoomCode.trim().toUpperCase();
@@ -175,6 +235,30 @@ export const gameRoomService = {
     if (!cleanCode) {
       throw new Error('Please enter a valid room code');
     }
+
+    // Resolve expected game type from hint or room code prefix
+    let resolvedGameType: GameType = hintGameType || 'tic_tac_toe';
+    if (!hintGameType) {
+      if (cleanCode.startsWith('P')) resolvedGameType = 'pool';
+      else if (cleanCode.startsWith('W')) resolvedGameType = 'whot';
+      else if (cleanCode.startsWith('Q')) resolvedGameType = 'trivia';
+      else if (cleanCode.startsWith('T')) resolvedGameType = 'tic_tac_toe';
+    }
+
+    const guestProfile = profile || {
+      id: currentUserId,
+      display_name: 'Opponent',
+      username: 'opponent',
+      avatar_url: '',
+      bio: '',
+      online_status: 'online',
+      last_seen: '',
+      privacy_online: true,
+      privacy_last_seen: true,
+      privacy_read_receipts: true,
+      created_at: '',
+      updated_at: '',
+    };
 
     // If database tables are available, query Supabase
     if (!isDemoMode && isSupabaseConfigured() && user && dbTablesAvailable) {
@@ -236,25 +320,27 @@ export const gameRoomService = {
 
     // Realtime channel room fallback
     const cached = roomStateCache.get(cleanCode);
-    const guestProfile = profile || {
-      id: currentUserId,
-      display_name: 'Opponent',
-      username: 'opponent',
-      avatar_url: '',
-      bio: '',
-      online_status: 'online',
-      last_seen: '',
-      privacy_online: true,
-      privacy_last_seen: true,
-      privacy_read_receipts: true,
-      created_at: '',
-      updated_at: '',
-    };
 
     if (cached) {
+      let updatedState = cached.game_state;
+      if (cached.game_type === 'whot') {
+        updatedState = ensurePlayerInWhotGame(cached.game_state as WhotGameState, {
+          id: currentUserId,
+          display_name: guestProfile.display_name,
+          avatar_url: guestProfile.avatar_url,
+        });
+      } else if (cached.game_type === 'trivia') {
+        updatedState = ensurePlayerInTriviaGame(cached.game_state as TriviaGameState, {
+          id: currentUserId,
+          display_name: guestProfile.display_name,
+          avatar_url: guestProfile.avatar_url,
+        });
+      }
+
       const updated: GameRoom = {
         ...cached,
         guest_user_id: currentUserId,
+        game_state: updatedState,
         status: 'active',
         state_version: cached.state_version + 1,
         guest: guestProfile,
@@ -264,16 +350,34 @@ export const gameRoomService = {
       return updated;
     }
 
-    // Initial guest placeholder room connecting to host via Realtime channel
+    // Create appropriate initial game state for resolved game type when room not cached locally
+    let initialGameState: any;
+    if (resolvedGameType === 'pool') {
+      initialGameState = createInitialPoolGameState();
+    } else if (resolvedGameType === 'whot') {
+      initialGameState = createInitialWhotGameState([
+        { id: 'host', display_name: 'Host Player', avatar_url: null },
+        { id: currentUserId, display_name: guestProfile.display_name, avatar_url: guestProfile.avatar_url },
+      ]);
+    } else if (resolvedGameType === 'trivia') {
+      initialGameState = createInitialTriviaState([
+        { id: 'host', display_name: 'Host Player', avatar_url: null },
+        { id: currentUserId, display_name: guestProfile.display_name, avatar_url: guestProfile.avatar_url },
+      ]);
+    } else {
+      initialGameState = createInitialTicTacToeState();
+    }
+
+    // Initial guest room connecting to host via Realtime channel
     const dynamicRoom: GameRoom = {
       id: cleanCode,
       room_code: cleanCode,
-      game_type: 'tic_tac_toe', // will be immediately updated upon channel handshake
+      game_type: resolvedGameType,
       status: 'active',
       host_user_id: 'host',
       guest_user_id: currentUserId,
       current_turn_user_id: 'host',
-      game_state: createInitialTicTacToeState(),
+      game_state: initialGameState,
       state_version: 1,
       winner_user_id: null,
       rematch_requested_by: null,
@@ -470,14 +574,15 @@ export const gameRoomService = {
   submitWhotMove: async (
     roomIdentifier: string,
     cardId: string,
-    chosenShape?: WhotShape
+    chosenShape?: WhotShape,
+    asUserId?: string
   ): Promise<GameRoom> => {
     const room = roomStateCache.get(roomIdentifier) || (await gameRoomService.fetchRoom(roomIdentifier));
     if (!room) throw new Error('Room not found');
-    const currentUserId = useAuthStore.getState().user?.id || 'demo-user-1';
+    const playerUserId = asUserId || useAuthStore.getState().user?.id || 'demo-user-1';
 
     const currentWhotState = room.game_state as WhotGameState;
-    const nextWhotState = applyWhotMove(currentWhotState, currentUserId, cardId, chosenShape);
+    const nextWhotState = applyWhotMove(currentWhotState, playerUserId, cardId, chosenShape);
 
     const updated: GameRoom = {
       ...room,
@@ -503,13 +608,13 @@ export const gameRoomService = {
     return updated;
   },
 
-  submitWhotDraw: async (roomIdentifier: string): Promise<GameRoom> => {
+  submitWhotDraw: async (roomIdentifier: string, asUserId?: string): Promise<GameRoom> => {
     const room = roomStateCache.get(roomIdentifier) || (await gameRoomService.fetchRoom(roomIdentifier));
     if (!room) throw new Error('Room not found');
-    const currentUserId = useAuthStore.getState().user?.id || 'demo-user-1';
+    const playerUserId = asUserId || useAuthStore.getState().user?.id || 'demo-user-1';
 
     const currentWhotState = room.game_state as WhotGameState;
-    const nextWhotState = applyWhotDraw(currentWhotState, currentUserId);
+    const nextWhotState = applyWhotDraw(currentWhotState, playerUserId);
 
     const updated: GameRoom = {
       ...room,
@@ -536,14 +641,15 @@ export const gameRoomService = {
   submitTriviaAnswer: async (
     roomIdentifier: string,
     optionIndex: number,
-    timeTakenMs: number
+    timeTakenMs: number,
+    asUserId?: string
   ): Promise<GameRoom> => {
     const room = roomStateCache.get(roomIdentifier) || (await gameRoomService.fetchRoom(roomIdentifier));
     if (!room) throw new Error('Room not found');
-    const currentUserId = useAuthStore.getState().user?.id || 'demo-user-1';
+    const playerUserId = asUserId || useAuthStore.getState().user?.id || 'demo-user-1';
 
     const currentTriviaState = room.game_state as TriviaGameState;
-    const nextTriviaState = calcTriviaAnswer(currentTriviaState, currentUserId, optionIndex, timeTakenMs);
+    const nextTriviaState = calcTriviaAnswer(currentTriviaState, playerUserId, optionIndex, timeTakenMs);
 
     const updated: GameRoom = {
       ...room,
@@ -564,6 +670,22 @@ export const gameRoomService = {
     }
 
     return updated;
+  },
+
+  updateRoomState: (roomIdentifier: string, updatedRoom: GameRoom) => {
+    roomStateCache.set(roomIdentifier, updatedRoom);
+    roomStateCache.set(updatedRoom.id, updatedRoom);
+    if (updatedRoom.room_code) {
+      roomStateCache.set(updatedRoom.room_code, updatedRoom);
+    }
+    const channel = activeChannels.get(roomIdentifier) || activeChannels.get(updatedRoom.id) || activeChannels.get(updatedRoom.room_code);
+    if (channel) {
+      channel.send({
+        type: 'broadcast',
+        event: 'room:sync-state',
+        payload: { room: updatedRoom },
+      });
+    }
   },
 
   advanceTriviaQuestion: async (roomIdentifier: string): Promise<GameRoom> => {
@@ -640,22 +762,51 @@ export const gameRoomService = {
         const { guestProfile, guestUserId } = payload.payload || {};
         const current = roomStateCache.get(roomIdentifier);
         if (current) {
+          let updatedState = current.game_state;
+          if (current.game_type === 'whot') {
+            updatedState = ensurePlayerInWhotGame(current.game_state as WhotGameState, {
+              id: guestUserId,
+              display_name: guestProfile?.display_name || 'Guest Player',
+              avatar_url: guestProfile?.avatar_url || null,
+            });
+          } else if (current.game_type === 'trivia') {
+            updatedState = ensurePlayerInTriviaGame(current.game_state as TriviaGameState, {
+              id: guestUserId,
+              display_name: guestProfile?.display_name || 'Guest Player',
+              avatar_url: guestProfile?.avatar_url || null,
+            });
+          }
+
           const updated: GameRoom = {
             ...current,
-            guest_user_id: guestUserId,
-            guest: guestProfile,
+            guest_user_id: current.guest_user_id || guestUserId,
+            guest: current.guest || guestProfile,
+            game_state: updatedState,
             status: 'active',
             state_version: current.state_version + 1,
           };
           roomStateCache.set(roomIdentifier, updated);
           roomStateCache.set(updated.id, updated);
+          if (updated.room_code) {
+            roomStateCache.set(updated.room_code, updated);
+          }
           onRoomUpdated(updated);
 
-          // Host replies with full state sync
+          // Host replies with full state sync so guest has the exact game type & state
           channel.send({
             type: 'broadcast',
             event: 'room:sync-state',
             payload: { room: updated },
+          });
+        }
+      })
+      .on('broadcast', { event: 'room:request-sync' }, () => {
+        const current = roomStateCache.get(roomIdentifier);
+        if (current) {
+          channel.send({
+            type: 'broadcast',
+            event: 'room:sync-state',
+            payload: { room: current },
           });
         }
       })
@@ -664,7 +815,16 @@ export const gameRoomService = {
         if (syncedRoom) {
           roomStateCache.set(roomIdentifier, syncedRoom);
           roomStateCache.set(syncedRoom.id, syncedRoom);
+          if (syncedRoom.room_code) {
+            roomStateCache.set(syncedRoom.room_code, syncedRoom);
+          }
           onRoomUpdated(syncedRoom);
+
+          // Update active room in global store so game screen updates instantly
+          const active = useGameStore.getState().activeRoom;
+          if (active && (active.room_code === roomIdentifier || active.id === roomIdentifier || active.room_code === syncedRoom.room_code)) {
+            useGameStore.getState().setActiveRoom(syncedRoom);
+          }
         }
       })
       .on('broadcast', { event: 'game:move' }, (payload) => {
@@ -747,12 +907,17 @@ export const gameRoomService = {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           const current = roomStateCache.get(roomIdentifier);
-          // If I am guest joining, announce presence to host
-          if (current && current.host_user_id !== currentUserId) {
+          // If guest joining, announce presence to host and request canonical game state
+          if (!current || current.host_user_id !== currentUserId) {
             channel.send({
               type: 'broadcast',
               event: 'room:guest-joined',
               payload: { guestProfile: profile, guestUserId: currentUserId },
+            });
+            channel.send({
+              type: 'broadcast',
+              event: 'room:request-sync',
+              payload: { guestUserId: currentUserId },
             });
           }
         }

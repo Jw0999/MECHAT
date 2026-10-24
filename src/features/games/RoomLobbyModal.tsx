@@ -58,7 +58,7 @@ export const RoomLobbyModal: React.FC<RoomLobbyModalProps> = ({
 
     setIsLoading(true);
     try {
-      const joinedRoom = await gameRoomService.joinRoom(roomCode);
+      const joinedRoom = await gameRoomService.joinRoom(roomCode, gameType || undefined);
       onRoomJoined(joinedRoom);
       onClose();
     } catch (err: any) {

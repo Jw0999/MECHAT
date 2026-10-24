@@ -265,3 +265,63 @@ export const applyWhotDraw = (state: WhotGameState, userId: string): WhotGameSta
     activeActionNotice: `${player.display_name} drew ${drawCount} card(s) from market. ${nextPlayers[nextTurnIdx].display_name}'s turn.`,
   };
 };
+
+export const ensurePlayerInWhotGame = (
+  state: WhotGameState,
+  user: { id: string; display_name: string; avatar_url?: string | null }
+): WhotGameState => {
+  if (state.players.some((p) => p.user_id === user.id)) {
+    return state;
+  }
+
+  const drawPile = [...state.drawPile];
+  let hand: WhotCard[] = [];
+  if (drawPile.length >= 5) {
+    hand = drawPile.splice(0, 5);
+  } else {
+    const extraDeck = createWhotDeck();
+    hand = extraDeck.splice(0, 5);
+    drawPile.push(...extraDeck);
+  }
+
+  const newPlayer: WhotPlayer = {
+    user_id: user.id,
+    display_name: user.display_name || 'Squad Member',
+    avatar_url: user.avatar_url || null,
+    hand,
+    isLastCard: false,
+  };
+
+  return {
+    ...state,
+    drawPile,
+    players: [...state.players, newPlayer],
+    activeActionNotice: `${newPlayer.display_name} joined the Whot match!`,
+  };
+};
+
+export const getBotWhotMove = (
+  player: WhotPlayer,
+  topCard: WhotCard,
+  requestedShape: WhotShape | null,
+  pendingPickCount: number
+): { cardId?: string; chosenShape?: WhotShape } => {
+  const validCards = player.hand.filter((c) =>
+    isValidWhotMove(c, topCard, requestedShape, pendingPickCount)
+  );
+
+  if (validCards.length > 0) {
+    const nonWhot = validCards.find((c) => c.shape !== 'whot');
+    const chosen = nonWhot || validCards[0];
+    const shapes: WhotShape[] = ['circle', 'triangle', 'cross', 'square', 'star'];
+    return {
+      cardId: chosen.id,
+      chosenShape:
+        chosen.shape === 'whot'
+          ? shapes[Math.floor(Math.random() * shapes.length)]
+          : undefined,
+    };
+  }
+
+  return {};
+};

@@ -563,7 +563,21 @@ export const useCallStore = create<CallState>()(
     });
 
     // 0ms instant UI feedback: show outgoing calling screen immediately
-    set({
+    const initialCallLog: CallLog = {
+      id: callId.startsWith('call-') ? callId : `call-${callId}`,
+      conversation_id: conversationId || null,
+      caller_id: currentUser?.id || 'demo-user-1',
+      receiver_id: remoteUser.id,
+      call_type: callType,
+      status: 'completed',
+      duration_seconds: 0,
+      started_at: new Date().toISOString(),
+      ended_at: null as any,
+      caller: currentProfile || undefined,
+      receiver: remoteUser,
+    };
+
+    set((state) => ({
       webrtcManager: manager,
       activeCall: {
         status: 'calling',
@@ -578,7 +592,8 @@ export const useCallStore = create<CallState>()(
         callId,
         conversationId: conversationId || null,
       },
-    });
+      callHistory: [initialCallLog, ...state.callHistory.filter((c) => c.id !== initialCallLog.id)],
+    }));
 
     try {
       const mediaPromise = manager.startLocalMedia(callType === 'video');
@@ -973,7 +988,12 @@ export const useCallStore = create<CallState>()(
         caller: activeCall.remoteUser,
         receiver: useAuthStore.getState().profile || undefined,
       };
-      set((state) => ({ callHistory: [newLog, ...state.callHistory] }));
+      set((state) => ({
+        callHistory: [
+          newLog,
+          ...state.callHistory.filter((c) => c.id !== newLog.id),
+        ],
+      }));
     }
     get().endCall();
   },
@@ -1032,56 +1052,56 @@ export const useCallStore = create<CallState>()(
       const callerId = activeCall.isIncoming ? activeCall.remoteUser.id : currentUserId;
       const receiverId = activeCall.isIncoming ? currentUserId : activeCall.remoteUser.id;
 
-      let callStatus: CallStatus = 'completed';
-      if (activeCall.status === 'connected') {
-        callStatus = 'completed';
-      } else if (activeCall.isIncoming) {
-        callStatus = 'missed';
-      } else {
-        callStatus = 'cancelled';
-      }
-
-      const duration = activeCall.duration || 0;
       const callLogId = activeCall.callId
         ? (activeCall.callId.startsWith('call-') ? activeCall.callId : `call-${activeCall.callId}`)
         : `call-${Date.now()}`;
+      const duration = activeCall.duration || 0;
 
-      // Avoid duplicating if already logged (e.g. from rejectCall)
-      const alreadyLogged = get().callHistory.some((c) => c.id === callLogId);
-
-      if (!alreadyLogged) {
-        const newLog: CallLog = {
-          id: callLogId,
-          conversation_id: (activeCall.conversationId as string) || null,
-          caller_id: callerId,
-          receiver_id: receiverId,
-          call_type: activeCall.callType,
-          status: callStatus,
-          duration_seconds: duration,
-          started_at: new Date(Date.now() - duration * 1000).toISOString(),
-          ended_at: new Date().toISOString(),
-          caller: activeCall.isIncoming ? activeCall.remoteUser : useAuthStore.getState().profile || undefined,
-          receiver: activeCall.isIncoming ? useAuthStore.getState().profile || undefined : activeCall.remoteUser,
-        };
-
-        set((state) => ({ callHistory: [newLog, ...state.callHistory] }));
-
-        // Persist to database if live authenticated session
-        if (isSupabaseConfigured() && !useAuthStore.getState().isDemoMode) {
-          supabase
-            .from('call_logs')
-            .insert({
-              conversation_id: activeCall.conversationId || null,
-              caller_id: callerId,
-              receiver_id: receiverId,
-              call_type: activeCall.callType,
-              status: callStatus,
-              duration_seconds: duration,
-              started_at: newLog.started_at,
-              ended_at: newLog.ended_at,
-            })
-            .then();
+      const existingLog = get().callHistory.find((c) => c.id === callLogId);
+      let callStatus: CallStatus = existingLog?.status === 'declined' ? 'declined' : 'completed';
+      if (existingLog?.status !== 'declined') {
+        if (activeCall.status === 'connected') {
+          callStatus = 'completed';
+        } else if (activeCall.isIncoming) {
+          callStatus = 'missed';
+        } else {
+          callStatus = 'cancelled';
         }
+      }
+
+      const updatedLog: CallLog = {
+        id: callLogId,
+        conversation_id: (activeCall.conversationId as string) || null,
+        caller_id: callerId,
+        receiver_id: receiverId,
+        call_type: activeCall.callType,
+        status: callStatus,
+        duration_seconds: duration,
+        started_at: new Date(Date.now() - duration * 1000).toISOString(),
+        ended_at: new Date().toISOString(),
+        caller: activeCall.isIncoming ? activeCall.remoteUser : useAuthStore.getState().profile || undefined,
+        receiver: activeCall.isIncoming ? useAuthStore.getState().profile || undefined : activeCall.remoteUser,
+      };
+
+      set((state) => ({
+        callHistory: [updatedLog, ...state.callHistory.filter((c) => c.id !== callLogId)],
+      }));
+
+      // Persist to database if live authenticated session
+      if (isSupabaseConfigured() && !useAuthStore.getState().isDemoMode) {
+        supabase
+          .from('call_logs')
+          .insert({
+            conversation_id: activeCall.conversationId || null,
+            caller_id: callerId,
+            receiver_id: receiverId,
+            call_type: activeCall.callType,
+            status: callStatus,
+            duration_seconds: duration,
+            started_at: updatedLog.started_at,
+            ended_at: updatedLog.ended_at,
+          })
+          .then();
       }
     }
 
@@ -1187,7 +1207,24 @@ export const useCallStore = create<CallState>()(
       isVideoOff: callType === 'audio',
     };
 
-    set({
+    const groupLogId = `call-group-${groupId}`;
+    const initialGroupLog: CallLog = {
+      id: groupLogId,
+      conversation_id: groupId,
+      caller_id: currentUser?.id || 'demo-user-1',
+      receiver_id: null,
+      call_type: callType,
+      status: 'completed',
+      duration_seconds: 0,
+      started_at: new Date().toISOString(),
+      ended_at: null as any,
+      caller: currentProfile || undefined,
+      is_group: true,
+      group_title: groupTitle || 'Group Call',
+      group_members_count: members && members.length > 0 ? members.length : 2,
+    };
+
+    set((state) => ({
       groupWebrtcManager: manager,
       activeGroupCall: {
         groupId,
@@ -1200,7 +1237,8 @@ export const useCallStore = create<CallState>()(
         localStream: null,
         participants: [localParticipant],
       },
-    });
+      callHistory: [initialGroupLog, ...state.callHistory.filter((c) => c.id !== groupLogId)],
+    }));
 
     try {
       const stream = await manager.startLocalMedia(callType === 'video');
@@ -1593,7 +1631,14 @@ export const useCallStore = create<CallState>()(
         group_title: activeGroupCall.groupTitle || 'Group Call',
         group_members_count: activeGroupCall.participants.length || 1,
       };
-      set((state) => ({ callHistory: [newLog, ...state.callHistory] }));
+      set((state) => ({
+        callHistory: [
+          newLog,
+          ...state.callHistory.filter(
+            (c) => c.id !== `call-group-${activeGroupCall.groupId}` && c.id !== newLog.id
+          ),
+        ],
+      }));
 
       if (isSupabaseConfigured() && !useAuthStore.getState().isDemoMode) {
         supabase
